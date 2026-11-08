@@ -1,0 +1,5 @@
+# Keep LF everywhere, including Windows checkouts: gofmt and the shell
+# scripts in deploy/ expect it.
+* text=auto eol=lf
+*.png binary
+*.woff2 binary
