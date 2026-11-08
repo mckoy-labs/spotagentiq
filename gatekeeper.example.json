@@ -1,0 +1,58 @@
+{
+  "agent": "my-agent",
+  "approval_timeout": "10m",
+  "default_action": "allow",
+  "listen": ":8484",
+  "log_path": "gatekeeper.audit.jsonl",
+  "principal": "",
+  "public_url": "http://localhost:8484",
+  "redact": [
+    "password",
+    "token",
+    "api_key",
+    "secret",
+    "ssn",
+    "card_number"
+  ],
+  "rules": [
+    {
+      "action": "deny",
+      "if_args_match": "\\b\\d{13,19}\\b",
+      "match": "*",
+      "reason": "Argument looks like a card number"
+    },
+    {
+      "action": "require_approval",
+      "match": "send_*",
+      "reason": "Outbound communication"
+    },
+    {
+      "action": "require_approval",
+      "match": "delete_*",
+      "reason": "Destructive action"
+    },
+    {
+      "action": "require_approval",
+      "match": "pay_*",
+      "reason": "Moves money"
+    },
+    {
+      "action": "require_approval",
+      "match": "write_*",
+      "reason": "Modifies data"
+    }
+  ],
+  "slack_webhook": "${SLACK_WEBHOOK_URL}",
+  "token": "${GATEKEEPER_TOKEN}",
+  "upstreams": [
+    {
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/path/to/allowed/dir"
+      ],
+      "command": "npx",
+      "name": "example"
+    }
+  ]
+}

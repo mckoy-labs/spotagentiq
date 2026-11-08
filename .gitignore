@@ -1,0 +1,5 @@
+bin/
+dist/
+*.jsonl
+gatekeeper.json
+!examples/gatekeeper.json

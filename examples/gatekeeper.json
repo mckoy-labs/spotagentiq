@@ -1,0 +1,32 @@
+{
+  "agent": "support-bot",
+  "principal": "ops@yourcompany.com",
+  "listen": ":8484",
+  "public_url": "https://gatekeeper.internal.yourcompany.com",
+  "token": "${GATEKEEPER_TOKEN}",
+  "log_path": "/var/lib/gatekeeper/audit.jsonl",
+  "approval_timeout": "15m",
+  "default_action": "allow",
+  "slack_webhook": "${SLACK_WEBHOOK_URL}",
+
+  "upstreams": [
+    { "name": "gmail",  "command": "npx", "args": ["-y", "@anthropic/mcp-server-gmail"] },
+    { "name": "db",     "command": "npx", "args": ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"] },
+    { "name": "stripe", "command": "npx", "args": ["-y", "@stripe/mcp", "--tools=all"], "env": { "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}" } }
+  ],
+
+  "rules": [
+    { "match": "*",            "action": "deny",             "if_args_match": "\\b\\d{13,19}\\b", "reason": "Argument looks like a card number" },
+    { "match": "*",            "action": "deny",             "if_args_match": "(?i)drop\\s+table|truncate", "reason": "Destructive SQL" },
+    { "match": "stripe/*",     "action": "require_approval", "reason": "Touches payments" },
+    { "match": "send_*",       "action": "require_approval", "reason": "Outbound email" },
+    { "match": "delete_*",     "action": "require_approval", "reason": "Deletes data" },
+    { "match": "db/query",     "action": "require_approval", "if_args_match": "(?i)\\b(update|delete|insert)\\b", "reason": "Write query" },
+    { "match": "db/query",     "action": "allow",            "reason": "Read-only query" },
+    { "match": "get_*",        "action": "allow" },
+    { "match": "list_*",       "action": "allow" },
+    { "match": "search_*",     "action": "allow" }
+  ],
+
+  "redact": ["password", "token", "api_key", "secret", "ssn", "card_number", "cvc"]
+}

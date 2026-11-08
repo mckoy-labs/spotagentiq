@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gatekeeper</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #15140f; --muted: #6b675c; --line: #e3e0d7;
+    --accent: #1f5f3a; --accent-ink: #ffffff; --danger: #a52a2a; --warn: #9a6700; --warn-bg: #fff7dc;
+    --ok-bg: #e7f3ea; --bad-bg: #fbe7e7; --code-bg: #f0efe9;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121310; --panel: #1b1c18; --ink: #ecebe4; --muted: #9b998f; --line: #2c2d27;
+      --accent: #4caf6f; --accent-ink: #0b150e; --danger: #e57373; --warn: #e6b422; --warn-bg: #2a2410;
+      --ok-bg: #16281c; --bad-bg: #2c1717; --code-bg: #23241f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .2px; }
+  .brand .mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; color: var(--accent-ink); font-size: 14px; }
+  .brand small { font-weight: 500; color: var(--muted); }
+  .who { display: flex; gap: 8px; align-items: center; }
+  .who input { border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 6px 10px; border-radius: 8px; font: inherit; width: 180px; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 80px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 28px 0 10px; display: flex; align-items: center; gap: 10px; }
+  h2 .count { background: var(--warn-bg); color: var(--warn); border-radius: 999px; padding: 1px 9px; font-weight: 700; font-size: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; }
+  .card.pending { border-left: 4px solid var(--warn); }
+  .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .tool { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .reason { margin: 8px 0 10px; }
+  pre { margin: 0; background: var(--code-bg); border-radius: 8px; padding: 10px 12px; font: 13px/1.5 var(--mono); overflow: auto; max-height: 260px; white-space: pre-wrap; word-break: break-word; }
+  .actions { display: flex; gap: 10px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 8px 14px; border-radius: 9px; cursor: pointer; }
+  button.approve { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+  button.reject { color: var(--danger); }
+  button:disabled { opacity: .5; cursor: default; }
+  .actions input { flex: 1; min-width: 180px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 8px 10px; border-radius: 9px; font: inherit; }
+  .empty { color: var(--muted); padding: 20px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  tr:last-child td { border-bottom: 0; }
+  td.mono { font-family: var(--mono); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.allowed, .pill.approved, .pill.completed { background: var(--ok-bg); color: var(--accent); }
+  .pill.denied, .pill.rejected, .pill.failed, .pill.timeout { background: var(--bad-bg); color: var(--danger); }
+  .pill.pending { background: var(--warn-bg); color: var(--warn); }
+  .pill.start { background: var(--code-bg); color: var(--muted); }
+  .chain { display: flex; gap: 10px; align-items: center; font-size: 13px; color: var(--muted); }
+  .chain .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  .chain .dot.bad { background: var(--danger); }
+  .toolbar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; }
+  a.btn { text-decoration: none; }
+  #login { max-width: 420px; margin: 80px auto; }
+  #login input { width: 100%; margin: 10px 0; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 9px 11px; border-radius: 9px; font: inherit; }
+  .hidden { display: none; }
+  .hash { color: var(--muted); font-size: 11px; }
+  @keyframes flash { from { background: var(--warn-bg);} to { background: var(--panel);} }
+  .card.new { animation: flash 1.2s ease-out; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="mark">⌸</div>Gatekeeper <small id="agentName"></small></div>
+  <div class="who"><span class="meta">Approving as</span><input id="approver" placeholder="your name" autocomplete="name"></div>
+</header>
+
+<main>
+  <div id="login" class="card">
+    <strong>Inbox token</strong>
+    <p class="meta">Paste the token from your Gatekeeper config (or <code>GATEKEEPER_TOKEN</code>).</p>
+    <input id="tokenInput" type="password" placeholder="token" autocomplete="off">
+    <button class="approve" id="tokenBtn">Open inbox</button>
+    <p class="meta" id="loginErr"></p>
+  </div>
+
+  <div id="app" class="hidden">
+    <h2>Waiting for a decision <span class="count" id="pendingCount">0</span></h2>
+    <div id="pending"></div>
+
+    <h2>Decided this session</h2>
+    <div id="history"></div>
+
+    <h2>Audit trail</h2>
+    <div class="toolbar">
+      <div class="chain"><span class="dot" id="chainDot"></span><span id="chainText">checking chain…</span></div>
+      <div style="display:flex;gap:8px">
+        <a class="btn" id="exportLink"><button>Export CSV</button></a>
+        <button id="policyBtn">View policy</button>
+      </div>
+    </div>
+    <pre id="policyBox" class="hidden"></pre>
+    <table>
+      <thead><tr><th>Time (UTC)</th><th>Event</th><th>Tool</th><th>Detail</th><th>Who</th></tr></thead>
+      <tbody id="log"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  // A ?token= in the URL (e.g. from a Slack link) signs you in once, then is
+  // removed from the address bar so it isn't left in history.
+  const urlTok = new URLSearchParams(location.search).get('token');
+  if (urlTok) { localStorage.setItem('gk_token', urlTok); history.replaceState(null, '', location.pathname + location.hash); }
+  let token = localStorage.getItem('gk_token') || '';
+  let seen = new Set();
+  const approverEl = $('#approver');
+  approverEl.value = localStorage.getItem('gk_approver') || '';
+  approverEl.addEventListener('change', () => localStorage.setItem('gk_approver', approverEl.value.trim()));
+
+  function headers() { return { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }; }
+
+  async function api(path, opts) {
+    const r = await fetch(path, Object.assign({ headers: headers() }, opts || {}));
+    if (r.status === 401) { showLogin('That token was not accepted.'); throw new Error('unauthorized'); }
+    return r.json();
+  }
+
+  function showLogin(msg) {
+    $('#login').classList.remove('hidden'); $('#app').classList.add('hidden');
+    $('#loginErr').textContent = msg || '';
+  }
+  function showApp() {
+    $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+    $('#exportLink').href = '/export.csv?token=' + encodeURIComponent(token);
+  }
+  $('#tokenBtn').onclick = () => { token = $('#tokenInput').value.trim(); localStorage.setItem('gk_token', token); document.cookie = 'gk_token=' + encodeURIComponent(token) + '; path=/; SameSite=Strict'; refresh(); };
+  $('#tokenInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#tokenBtn').click(); });
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function pretty(raw) {
+    if (raw && typeof raw === 'object') return JSON.stringify(raw, null, 2);
+    try { return JSON.stringify(JSON.parse(raw), null, 2); } catch (e) { return String(raw); }
+  }
+  function t(iso) { return new Date(iso).toISOString().replace('T',' ').slice(0,19); }
+  function ago(iso) { const s = Math.max(0, (Date.now() - new Date(iso)) / 1000); return s < 60 ? Math.round(s) + 's ago' : s < 3600 ? Math.round(s/60) + 'm ago' : Math.round(s/3600) + 'h ago'; }
+  function left(iso) { const s = (new Date(iso) - Date.now()) / 1000; return s <= 0 ? 'expired' : s < 60 ? Math.round(s) + 's left' : Math.round(s/60) + 'm left'; }
+
+  function renderPending(list) {
+    $('#pendingCount').textContent = list.length;
+    document.title = (list.length ? '(' + list.length + ') ' : '') + 'Gatekeeper';
+    if (!list.length) { $('#pending').innerHTML = '<div class="empty">Nothing waiting. Agents are running inside policy.</div>'; return; }
+    $('#pending').innerHTML = list.map(r => `
+      <div class="card pending ${seen.has(r.id) ? '' : 'new'}" id="${esc(r.id)}">
+        <div class="row">
+          <div><span class="tool">${esc(r.tool)}</span> <span class="meta">via ${esc(r.upstream)}</span></div>
+          <div class="meta">agent <b>${esc(r.agent)}</b>${r.principal ? ' for ' + esc(r.principal) : ''} · ${ago(r.created_at)} · <span class="warnleft">${left(r.expires_at)}</span></div>
+        </div>
+        <div class="reason">Held because: <b>${esc(r.reason)}</b> <span class="meta">(rule <code>${esc(r.rule || 'default')}</code>)</span></div>
+        <pre>${esc(pretty(r.args))}</pre>
+        <div class="actions">
+          <button class="approve" data-id="${esc(r.id)}" data-d="approve">Approve &amp; run</button>
+          <button class="reject" data-id="${esc(r.id)}" data-d="reject">Reject</button>
+          <input placeholder="note for the audit log (optional)" data-note="${esc(r.id)}">
+        </div>
+      </div>`).join('');
+    list.forEach(r => seen.add(r.id));
+    document.querySelectorAll('.actions button').forEach(b => b.onclick = () => decide(b.dataset.id, b.dataset.d, b));
+  }
+
+  async function decide(id, decision, btn) {
+    const approver = approverEl.value.trim();
+    if (!approver) { approverEl.focus(); approverEl.placeholder = 'enter your name first'; return; }
+    localStorage.setItem('gk_approver', approver);
+    const note = (document.querySelector(`input[data-note="${id}"]`) || {}).value || '';
+    btn.disabled = true;
+    const res = await api('/api/decide', { method: 'POST', body: JSON.stringify({ id, decision, approver, note }) });
+    if (res.error) alert(res.error);
+    refresh();
+  }
+
+  function renderHistory(list) {
+    if (!list.length) { $('#history').innerHTML = '<div class="empty">No decisions yet.</div>'; return; }
+    $('#history').innerHTML = list.slice(0, 20).map(r => `
+      <div class="card">
+        <div class="row">
+          <div><span class="pill ${esc(r.status)}">${esc(r.status)}</span> <span class="tool">${esc(r.tool)}</span></div>
+          <div class="meta">${r.approver ? 'by <b>' + esc(r.approver) + '</b> · ' : ''}${t(r.decided_at || r.created_at)}${r.note ? ' · “' + esc(r.note) + '”' : ''}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  function renderLog(entries) {
+    $('#log').innerHTML = entries.map(e => {
+      const kind = (e.event || '').split('.').pop();
+      const detail = e.event === 'gatekeeper.start' ? esc(e.reason) : esc(e.result || e.reason || '');
+      return `<tr>
+        <td class="mono">${t(e.time)}</td>
+        <td><span class="pill ${esc(kind)}">${esc(kind)}</span></td>
+        <td class="mono">${esc(e.tool || '')}</td>
+        <td>${detail}<div class="hash">#${e.seq} ${esc((e.hash||'').slice(0,12))}…</div></td>
+        <td>${esc(e.approver || e.agent || '')}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderChain(c) {
+    const dot = $('#chainDot'), txt = $('#chainText');
+    if (c.ok) { dot.classList.remove('bad'); txt.textContent = `${c.entries} entries · hash chain intact`; }
+    else { dot.classList.add('bad'); txt.textContent = `CHAIN BROKEN at #${c.bad_seq}: ${c.problem}`; }
+  }
+
+  $('#policyBtn').onclick = async () => {
+    const box = $('#policyBox');
+    if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+    const p = await api('/api/policy');
+    box.textContent = JSON.stringify(p, null, 2); box.classList.remove('hidden');
+  };
+
+  async function refresh() {
+    if (!token) { showLogin(); return; }
+    try {
+      const s = await api('/api/state');
+      showApp();
+      $('#agentName').textContent = s.agent ? '· ' + s.agent : '';
+      renderPending(s.pending); renderHistory(s.history); renderLog(s.recent); renderChain(s.chain);
+      if (location.hash.length > 1) { const el = document.getElementById(location.hash.slice(1)); if (el) { el.scrollIntoView({behavior:'smooth'}); location.hash = ''; } }
+    } catch (e) { /* login shown */ }
+  }
+  refresh();
+  setInterval(refresh, 2000);
+})();
+</script>
+</body>
+</html>

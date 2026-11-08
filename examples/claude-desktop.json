@@ -1,0 +1,10 @@
+{
+  "_comment": "Drop into Claude Desktop's claude_desktop_config.json (or Claude Code's .mcp.json / Cursor's mcp.json). Claude talks to Gatekeeper; Gatekeeper launches the real servers listed in gatekeeper.json.",
+  "mcpServers": {
+    "gatekeeper": {
+      "command": "/usr/local/bin/gatekeeper",
+      "args": ["serve", "--config", "/Users/you/gatekeeper.json"],
+      "env": { "GATEKEEPER_TOKEN": "change-me" }
+    }
+  }
+}
