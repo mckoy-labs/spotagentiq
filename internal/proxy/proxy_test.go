@@ -115,7 +115,7 @@ func (h *harness) callTool(name string, args map[string]any) (text string, isErr
 		h.t.Fatalf("tools/call %s: protocol error %v", name, m.Error)
 	}
 	var r struct {
-		IsError bool `json:"isError"`
+		IsError bool                    `json:"isError"`
 		Content []struct{ Text string } `json:"content"`
 	}
 	json.Unmarshal(m.Result, &r)
