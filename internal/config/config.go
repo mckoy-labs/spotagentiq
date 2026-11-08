@@ -1,4 +1,4 @@
-// Package config loads gatekeeper.json.
+// Package config loads spotagentiq.json.
 package config
 
 import (
@@ -9,10 +9,10 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/policy"
+	"github.com/mckoy-labs/spotagentiq/internal/policy"
 )
 
-// Upstream is an MCP server Gatekeeper launches and fronts.
+// Upstream is an MCP server SpotAgentIQ launches and fronts.
 type Upstream struct {
 	Name    string            `json:"name"`
 	Command string            `json:"command"`
@@ -79,7 +79,7 @@ func (c *Config) applyDefaults() {
 		c.Agent = "agent"
 	}
 	if c.LogPath == "" {
-		c.LogPath = "gatekeeper.audit.jsonl"
+		c.LogPath = "spotagentiq.audit.jsonl"
 	}
 	if c.ApprovalTimeout == "" {
 		c.ApprovalTimeout = "10m"
@@ -95,7 +95,7 @@ func (c *Config) applyDefaults() {
 		c.PublicURL = "http://" + host
 	}
 	if c.Token == "" {
-		c.Token = os.Getenv("GATEKEEPER_TOKEN")
+		c.Token = os.Getenv("SPOTAGENTIQ_TOKEN")
 	}
 }
 
@@ -133,7 +133,7 @@ func (c *Config) Validate() error {
 		return errors.New("config: rules require approval but listen is empty; set listen (e.g. \":8484\")")
 	}
 	if c.Listen != "" && c.Token == "" {
-		return errors.New("config: token is required when the inbox is enabled (set token or GATEKEEPER_TOKEN)")
+		return errors.New("config: token is required when the inbox is enabled (set token or SPOTAGENTIQ_TOKEN)")
 	}
 	return nil
 }

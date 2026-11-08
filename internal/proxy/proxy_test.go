@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/approvals"
-	"github.com/gatekeeper-run/gatekeeper/internal/audit"
-	"github.com/gatekeeper-run/gatekeeper/internal/config"
-	"github.com/gatekeeper-run/gatekeeper/internal/demo"
-	"github.com/gatekeeper-run/gatekeeper/internal/jsonrpc"
-	"github.com/gatekeeper-run/gatekeeper/internal/policy"
+	"github.com/mckoy-labs/spotagentiq/internal/approvals"
+	"github.com/mckoy-labs/spotagentiq/internal/audit"
+	"github.com/mckoy-labs/spotagentiq/internal/config"
+	"github.com/mckoy-labs/spotagentiq/internal/demo"
+	"github.com/mckoy-labs/spotagentiq/internal/jsonrpc"
+	"github.com/mckoy-labs/spotagentiq/internal/policy"
 )
 
 // TestHelperUpstream is not a test: when GK_HELPER_UPSTREAM=1 the test binary
@@ -176,7 +176,7 @@ func TestAllowPassesThrough(t *testing.T) {
 func TestDenyBlocksAndRedacts(t *testing.T) {
 	h := newHarness(t, 1, standardRules, policy.Allow, "5s")
 	text, isErr := h.callTool("charge_card", map[string]any{"customer_id": "c1", "amount": 1, "card_number": "4242424242424242"})
-	if !isErr || !strings.Contains(text, "Blocked by Gatekeeper") || !strings.Contains(text, "card number") {
+	if !isErr || !strings.Contains(text, "Blocked by SpotAgentIQ") || !strings.Contains(text, "card number") {
 		t.Fatalf("deny result: %q err=%v", text, isErr)
 	}
 	entries, _ := audit.ReadAll(h.log)

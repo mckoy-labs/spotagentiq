@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/approvals"
-	"github.com/gatekeeper-run/gatekeeper/internal/audit"
-	"github.com/gatekeeper-run/gatekeeper/internal/policy"
+	"github.com/mckoy-labs/spotagentiq/internal/approvals"
+	"github.com/mckoy-labs/spotagentiq/internal/audit"
+	"github.com/mckoy-labs/spotagentiq/internal/policy"
 )
 
 //go:embed ui.html
@@ -196,7 +196,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="gatekeeper-audit-%s.csv"`, time.Now().UTC().Format("20060102-150405")))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="spotagentiq-audit-%s.csv"`, time.Now().UTC().Format("20060102-150405")))
 	if err := audit.WriteCSV(w, entries); err != nil {
 		log.Printf("inbox: csv: %v", err)
 	}

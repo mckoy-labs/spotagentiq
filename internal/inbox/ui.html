@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gatekeeper</title>
+<title>SpotAgentIQ</title>
 <style>
   :root {
     --bg: #f6f5f1; --panel: #ffffff; --ink: #15140f; --muted: #6b675c; --line: #e3e0d7;
@@ -67,14 +67,14 @@
 </head>
 <body>
 <header>
-  <div class="brand"><div class="mark">⌸</div>Gatekeeper <small id="agentName"></small></div>
+  <div class="brand"><div class="mark">⌸</div>SpotAgentIQ <small id="agentName"></small></div>
   <div class="who"><span class="meta">Approving as</span><input id="approver" placeholder="your name" autocomplete="name"></div>
 </header>
 
 <main>
   <div id="login" class="card">
     <strong>Inbox token</strong>
-    <p class="meta">Paste the token from your Gatekeeper config (or <code>GATEKEEPER_TOKEN</code>).</p>
+    <p class="meta">Paste the token from your SpotAgentIQ config (or <code>SPOTAGENTIQ_TOKEN</code>).</p>
     <input id="tokenInput" type="password" placeholder="token" autocomplete="off">
     <button class="approve" id="tokenBtn">Open inbox</button>
     <p class="meta" id="loginErr"></p>
@@ -146,7 +146,7 @@
 
   function renderPending(list) {
     $('#pendingCount').textContent = list.length;
-    document.title = (list.length ? '(' + list.length + ') ' : '') + 'Gatekeeper';
+    document.title = (list.length ? '(' + list.length + ') ' : '') + 'SpotAgentIQ';
     if (!list.length) { $('#pending').innerHTML = '<div class="empty">Nothing waiting. Agents are running inside policy.</div>'; return; }
     $('#pending').innerHTML = list.map(r => `
       <div class="card pending ${seen.has(r.id) ? '' : 'new'}" id="${esc(r.id)}">
@@ -191,7 +191,7 @@
   function renderLog(entries) {
     $('#log').innerHTML = entries.map(e => {
       const kind = (e.event || '').split('.').pop();
-      const detail = e.event === 'gatekeeper.start' ? esc(e.reason) : esc(e.result || e.reason || '');
+      const detail = e.event === 'spotagentiq.start' ? esc(e.reason) : esc(e.result || e.reason || '');
       return `<tr>
         <td class="mono">${t(e.time)}</td>
         <td><span class="pill ${esc(kind)}">${esc(kind)}</span></td>

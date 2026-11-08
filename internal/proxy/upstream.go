@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/config"
-	"github.com/gatekeeper-run/gatekeeper/internal/jsonrpc"
+	"github.com/mckoy-labs/spotagentiq/internal/config"
+	"github.com/mckoy-labs/spotagentiq/internal/jsonrpc"
 )
 
 // upstream is one child MCP server speaking JSON-RPC over its stdio.

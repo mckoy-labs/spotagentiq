@@ -1,3 +1,3 @@
-module github.com/gatekeeper-run/gatekeeper
+module github.com/mckoy-labs/spotagentiq
 
 go 1.24.7

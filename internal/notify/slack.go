@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/approvals"
+	"github.com/mckoy-labs/spotagentiq/internal/approvals"
 )
 
 // Slack posts to an incoming-webhook URL.
@@ -32,7 +32,7 @@ func (s *Slack) NotifyPending(r *approvals.Request) {
 		args = args[:600] + "…"
 	}
 	link := strings.TrimRight(s.PublicURL, "/") + "/#" + r.ID
-	text := fmt.Sprintf(":lock: *Gatekeeper: approval needed*\nAgent `%s` wants to call `%s`\n*Why held:* %s\n*Arguments:*\n```%s```\n<%s|Review in inbox> · expires %s",
+	text := fmt.Sprintf(":lock: *SpotAgentIQ: approval needed*\nAgent `%s` wants to call `%s`\n*Why held:* %s\n*Arguments:*\n```%s```\n<%s|Review in inbox> · expires %s",
 		r.Agent, r.Tool, r.Reason, args, link, r.ExpiresAt.Format(time.Kitchen))
 	payload, _ := json.Marshal(map[string]any{"text": text})
 

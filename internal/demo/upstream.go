@@ -1,5 +1,5 @@
 // Package demo contains a fake tool server and a scripted agent used to show
-// Gatekeeper in action without any real systems attached.
+// SpotAgentIQ in action without any real systems attached.
 package demo
 
 import (
@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/jsonrpc"
+	"github.com/mckoy-labs/spotagentiq/internal/jsonrpc"
 )
 
 // RunUpstream serves a tiny MCP server over stdio with tools that look like a

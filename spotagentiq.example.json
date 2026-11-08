@@ -3,7 +3,7 @@
   "approval_timeout": "10m",
   "default_action": "allow",
   "listen": ":8484",
-  "log_path": "gatekeeper.audit.jsonl",
+  "log_path": "spotagentiq.audit.jsonl",
   "principal": "",
   "public_url": "http://localhost:8484",
   "redact": [
@@ -43,7 +43,7 @@
     }
   ],
   "slack_webhook": "${SLACK_WEBHOOK_URL}",
-  "token": "${GATEKEEPER_TOKEN}",
+  "token": "${SPOTAGENTIQ_TOKEN}",
   "upstreams": [
     {
       "args": [

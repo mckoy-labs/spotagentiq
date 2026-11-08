@@ -1,5 +1,13 @@
 bin/
 dist/
 *.jsonl
-gatekeeper.json
-!examples/gatekeeper.json
+spotagentiq.json
+!examples/spotagentiq.json
+
+# local release artifacts
+/*.tar.gz
+/spotagentiq_v*
+/gatekeeper_v*
+/gatekeeper-*
+.idea/
+

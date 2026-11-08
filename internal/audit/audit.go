@@ -29,7 +29,7 @@ const (
 	EventTimeout   = "call.timeout"   // nobody decided in time
 	EventCompleted = "call.completed" // upstream returned
 	EventFailed    = "call.failed"    // upstream returned an error
-	EventStartup   = "gatekeeper.start"
+	EventStartup   = "spotagentiq.start"
 )
 
 // Entry is one line in the log. Hash covers every field except Hash itself.

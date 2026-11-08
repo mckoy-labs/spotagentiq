@@ -1,11 +1,11 @@
-// Command gatekeeper puts a human approval step between an AI agent and the
+// Command spotagentiq puts a human approval step between an AI agent and the
 // tools it calls, and keeps a tamper-evident log of everything.
 //
-//	gatekeeper serve --config gatekeeper.json   # run as an MCP server (stdio)
-//	gatekeeper init  > gatekeeper.json          # write a starter config
-//	gatekeeper verify --log audit.jsonl         # check the hash chain
-//	gatekeeper export --log audit.jsonl > a.csv # CSV for auditors
-//	gatekeeper demo                             # 60-second guided demo
+//	spotagentiq serve --config spotagentiq.json   # run as an MCP server (stdio)
+//	spotagentiq init  > spotagentiq.json          # write a starter config
+//	spotagentiq verify --log audit.jsonl         # check the hash chain
+//	spotagentiq export --log audit.jsonl > a.csv # CSV for auditors
+//	spotagentiq demo                             # 60-second guided demo
 package main
 
 import (
@@ -22,14 +22,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/approvals"
-	"github.com/gatekeeper-run/gatekeeper/internal/audit"
-	"github.com/gatekeeper-run/gatekeeper/internal/config"
-	"github.com/gatekeeper-run/gatekeeper/internal/demo"
-	"github.com/gatekeeper-run/gatekeeper/internal/inbox"
-	"github.com/gatekeeper-run/gatekeeper/internal/notify"
-	"github.com/gatekeeper-run/gatekeeper/internal/policy"
-	"github.com/gatekeeper-run/gatekeeper/internal/proxy"
+	"github.com/mckoy-labs/spotagentiq/internal/approvals"
+	"github.com/mckoy-labs/spotagentiq/internal/audit"
+	"github.com/mckoy-labs/spotagentiq/internal/config"
+	"github.com/mckoy-labs/spotagentiq/internal/demo"
+	"github.com/mckoy-labs/spotagentiq/internal/inbox"
+	"github.com/mckoy-labs/spotagentiq/internal/notify"
+	"github.com/mckoy-labs/spotagentiq/internal/policy"
+	"github.com/mckoy-labs/spotagentiq/internal/proxy"
 )
 
 var version = "0.1.0"
@@ -58,7 +58,7 @@ func main() {
 	case "demo-upstream":
 		err = demo.RunUpstream()
 	case "version", "--version", "-v":
-		fmt.Println("gatekeeper", version)
+		fmt.Println("spotagentiq", version)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -73,25 +73,25 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `gatekeeper — human approval and audit for AI agent tool calls
+	fmt.Fprint(os.Stderr, `spotagentiq — human approval and audit for AI agent tool calls
 
 Usage:
-  gatekeeper serve  --config gatekeeper.json    Run as an MCP server over stdio
-  gatekeeper init                               Print a starter config
-  gatekeeper verify --log audit.jsonl           Verify the audit log hash chain
-  gatekeeper export --log audit.jsonl           Write the audit log as CSV to stdout
-  gatekeeper demo   [--listen :8484]            Guided demo with a fake CRM
-  gatekeeper version
+  spotagentiq serve  --config spotagentiq.json    Run as an MCP server over stdio
+  spotagentiq init                               Print a starter config
+  spotagentiq verify --log audit.jsonl           Verify the audit log hash chain
+  spotagentiq export --log audit.jsonl           Write the audit log as CSV to stdout
+  spotagentiq demo   [--listen :8484]            Guided demo with a fake CRM
+  spotagentiq version
 
 Point your agent (Claude Desktop, Claude Code, Cursor, your own code) at
-"gatekeeper serve" instead of at the tool server. Gatekeeper launches the real
+"spotagentiq serve" instead of at the tool server. SpotAgentIQ launches the real
 server, forwards everything, and holds or blocks calls according to your rules.
 `)
 }
 
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	cfgPath := fs.String("config", "gatekeeper.json", "path to config file")
+	cfgPath := fs.String("config", "spotagentiq.json", "path to config file")
 	_ = fs.Parse(args)
 
 	cfg, err := config.Load(*cfgPath)
@@ -131,7 +131,7 @@ func cmdServe(args []string) error {
 			defer scancel()
 			_ = hs.Shutdown(sctx)
 		}()
-		log.Printf("gatekeeper: inbox at %s", cfg.PublicURL)
+		log.Printf("spotagentiq: inbox at %s", cfg.PublicURL)
 	}
 
 	p := proxy.New(cfg, pol, lg, store, os.Stdin, os.Stdout)
@@ -146,8 +146,8 @@ func cmdInit(args []string) error {
 		"principal":        "",
 		"listen":           ":8484",
 		"public_url":       "http://localhost:8484",
-		"token":            "${GATEKEEPER_TOKEN}",
-		"log_path":         "gatekeeper.audit.jsonl",
+		"token":            "${SPOTAGENTIQ_TOKEN}",
+		"log_path":         "spotagentiq.audit.jsonl",
 		"approval_timeout": "10m",
 		"default_action":   "allow",
 		"slack_webhook":    "${SLACK_WEBHOOK_URL}",
@@ -170,7 +170,7 @@ func cmdInit(args []string) error {
 
 func cmdVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
-	logPath := fs.String("log", "gatekeeper.audit.jsonl", "audit log path")
+	logPath := fs.String("log", "spotagentiq.audit.jsonl", "audit log path")
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	_ = fs.Parse(args)
 	res, err := audit.Verify(*logPath)
@@ -193,7 +193,7 @@ func cmdVerify(args []string) error {
 
 func cmdExport(args []string) error {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
-	logPath := fs.String("log", "gatekeeper.audit.jsonl", "audit log path")
+	logPath := fs.String("log", "spotagentiq.audit.jsonl", "audit log path")
 	_ = fs.Parse(args)
 	entries, err := audit.ReadAll(*logPath)
 	if err != nil {

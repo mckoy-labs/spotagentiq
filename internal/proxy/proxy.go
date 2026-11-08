@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/approvals"
-	"github.com/gatekeeper-run/gatekeeper/internal/audit"
-	"github.com/gatekeeper-run/gatekeeper/internal/config"
-	"github.com/gatekeeper-run/gatekeeper/internal/jsonrpc"
-	"github.com/gatekeeper-run/gatekeeper/internal/policy"
+	"github.com/mckoy-labs/spotagentiq/internal/approvals"
+	"github.com/mckoy-labs/spotagentiq/internal/audit"
+	"github.com/mckoy-labs/spotagentiq/internal/config"
+	"github.com/mckoy-labs/spotagentiq/internal/jsonrpc"
+	"github.com/mckoy-labs/spotagentiq/internal/policy"
 )
 
 // Version is stamped into serverInfo.
@@ -81,18 +81,18 @@ func (p *Proxy) Run(ctx context.Context) error {
 		u.onNotification = p.onUpstreamNotification
 		u.onRequest = p.onUpstreamRequest
 		p.upstreams = append(p.upstreams, u)
-		log.Printf("gatekeeper: started upstream %q (%s)", uc.Name, uc.Command)
+		log.Printf("spotagentiq: started upstream %q (%s)", uc.Name, uc.Command)
 	}
 	defer p.shutdown()
 
 	_, _ = p.log.Append(audit.Entry{Event: audit.EventStartup, Agent: p.cfg.Agent, Principal: p.cfg.Principal,
-		Reason: fmt.Sprintf("gatekeeper %s, %d upstream(s), %d rule(s), default %s", Version, len(p.upstreams), len(p.policy.Rules()), p.policy.DefaultAction())})
+		Reason: fmt.Sprintf("spotagentiq %s, %d upstream(s), %d rule(s), default %s", Version, len(p.upstreams), len(p.policy.Rules()), p.policy.DefaultAction())})
 
 	for {
 		m, err := p.client.Read()
 		if err != nil {
 			if err == jsonrpc.ErrClosed {
-				log.Printf("gatekeeper: client disconnected")
+				log.Printf("spotagentiq: client disconnected")
 				return nil
 			}
 			return err
@@ -147,7 +147,7 @@ func (p *Proxy) handleInitialize(ctx context.Context, m *jsonrpc.Message) {
 		resp, err := u.callRaw(ictx, "initialize", m.Params)
 		cancel()
 		if err != nil || resp.Error != nil {
-			log.Printf("gatekeeper: upstream %q failed to initialize: %v %v", u.name, err, resp)
+			log.Printf("spotagentiq: upstream %q failed to initialize: %v %v", u.name, err, resp)
 			continue
 		}
 		var res struct {
@@ -172,8 +172,8 @@ func (p *Proxy) handleInitialize(ctx context.Context, m *jsonrpc.Message) {
 	p.reply(m.ID, map[string]any{
 		"protocolVersion": protocolVersion(m.Params),
 		"capabilities":    caps,
-		"serverInfo":      map[string]any{"name": "gatekeeper", "version": Version},
-		"instructions":    "Tool calls pass through Gatekeeper. Some calls are held for human approval and may take a while; others may be blocked by policy. If a call is blocked, tell the user why rather than retrying.",
+		"serverInfo":      map[string]any{"name": "spotagentiq", "version": Version},
+		"instructions":    "Tool calls pass through SpotAgentIQ. Some calls are held for human approval and may take a while; others may be blocked by policy. If a call is blocked, tell the user why rather than retrying.",
 	})
 	p.initOnce.Do(func() { close(p.initialized) })
 }
@@ -220,7 +220,7 @@ func (p *Proxy) refreshTools(ctx context.Context) {
 		resp, err := u.call(lctx, "tools/list", map[string]any{})
 		cancel()
 		if err != nil || resp.Error != nil {
-			log.Printf("gatekeeper: tools/list from %q failed: %v", u.name, err)
+			log.Printf("spotagentiq: tools/list from %q failed: %v", u.name, err)
 			continue
 		}
 		var res struct {
@@ -317,8 +317,8 @@ func (p *Proxy) handleToolsCall(ctx context.Context, m *jsonrpc.Message) {
 		e := base
 		e.Event = audit.EventDenied
 		_, _ = p.log.Append(e)
-		log.Printf("gatekeeper: DENIED %s (%s)", route.realName, dec.Reason)
-		p.replyToolBlocked(m.ID, fmt.Sprintf("Blocked by Gatekeeper policy: %s. This action was not performed.", dec.Reason))
+		log.Printf("spotagentiq: DENIED %s (%s)", route.realName, dec.Reason)
+		p.replyToolBlocked(m.ID, fmt.Sprintf("Blocked by SpotAgentIQ policy: %s. This action was not performed.", dec.Reason))
 		return
 
 	case policy.RequireApproval:
@@ -329,7 +329,7 @@ func (p *Proxy) handleToolsCall(ctx context.Context, m *jsonrpc.Message) {
 			Agent: p.cfg.Agent, Principal: p.cfg.Principal, Upstream: route.up.name, Tool: route.realName,
 			Args: redacted, Reason: dec.Reason, Rule: ruleName,
 		}, p.cfg.Timeout())
-		log.Printf("gatekeeper: HELD %s for approval (%s) id=%s", route.realName, dec.Reason, req.ID)
+		log.Printf("spotagentiq: HELD %s for approval (%s) id=%s", route.realName, dec.Reason, req.ID)
 
 		stopProgress := p.startProgress(params, req)
 		d := p.approvals.Wait(req)
@@ -340,12 +340,12 @@ func (p *Proxy) handleToolsCall(ctx context.Context, m *jsonrpc.Message) {
 			e := base
 			e.Event, e.Approver, e.Reason = audit.EventApproved, d.Approver, nonEmpty(d.Note, dec.Reason)
 			_, _ = p.log.Append(e)
-			log.Printf("gatekeeper: APPROVED %s by %s", route.realName, d.Approver)
+			log.Printf("spotagentiq: APPROVED %s by %s", route.realName, d.Approver)
 		case approvals.StatusRejected:
 			e := base
 			e.Event, e.Approver, e.Reason = audit.EventRejected, d.Approver, nonEmpty(d.Note, "rejected")
 			_, _ = p.log.Append(e)
-			log.Printf("gatekeeper: REJECTED %s by %s", route.realName, d.Approver)
+			log.Printf("spotagentiq: REJECTED %s by %s", route.realName, d.Approver)
 			msg := "Rejected by a human reviewer"
 			if d.Approver != "" {
 				msg += " (" + d.Approver + ")"
@@ -359,7 +359,7 @@ func (p *Proxy) handleToolsCall(ctx context.Context, m *jsonrpc.Message) {
 			e := base
 			e.Event = audit.EventTimeout
 			_, _ = p.log.Append(e)
-			log.Printf("gatekeeper: TIMEOUT waiting for approval of %s", route.realName)
+			log.Printf("spotagentiq: TIMEOUT waiting for approval of %s", route.realName)
 			p.replyToolBlocked(m.ID, "No human approved this action within the allowed time. This action was not performed.")
 			return
 		}
@@ -410,13 +410,13 @@ func (p *Proxy) startProgress(params toolCallParams, req *approvals.Request) fun
 			})
 			_ = p.client.Write(n)
 		}
-		send(fmt.Sprintf("Gatekeeper: waiting for human approval of %s (%s)", req.Tool, req.ID))
+		send(fmt.Sprintf("SpotAgentIQ: waiting for human approval of %s (%s)", req.Tool, req.ID))
 		for {
 			select {
 			case <-stop:
 				return
 			case <-t.C:
-				send(fmt.Sprintf("Gatekeeper: still waiting for approval of %s; expires %s", req.Tool, req.ExpiresAt.UTC().Format(time.Kitchen)))
+				send(fmt.Sprintf("SpotAgentIQ: still waiting for approval of %s; expires %s", req.Tool, req.ExpiresAt.UTC().Format(time.Kitchen)))
 			}
 		}
 	}()
@@ -558,7 +558,7 @@ func (p *Proxy) handleClientResponse(m *jsonrpc.Message) {
 
 func (p *Proxy) send(m *jsonrpc.Message) {
 	if err := p.client.Write(m); err != nil {
-		log.Printf("gatekeeper: write to client failed: %v", err)
+		log.Printf("spotagentiq: write to client failed: %v", err)
 	}
 }
 

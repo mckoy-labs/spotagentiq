@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gatekeeper-run/gatekeeper/internal/jsonrpc"
+	"github.com/mckoy-labs/spotagentiq/internal/jsonrpc"
 )
 
-// DemoConfig is written to disk and handed to `gatekeeper serve` by RunAgent.
+// DemoConfig is written to disk and handed to `spotagentiq serve` by RunAgent.
 func DemoConfig(selfBinary, logPath, token string, listen string) string {
 	cfg := map[string]any{
 		"agent":            "support-bot",
@@ -39,17 +39,17 @@ func DemoConfig(selfBinary, logPath, token string, listen string) string {
 	return string(b)
 }
 
-// RunAgent plays the part of an AI agent talking to Gatekeeper over MCP. It
-// starts `gatekeeper serve` with a demo config, then makes a sequence of tool
+// RunAgent plays the part of an AI agent talking to SpotAgentIQ over MCP. It
+// starts `spotagentiq serve` with a demo config, then makes a sequence of tool
 // calls that exercise allow, deny and require_approval.
 func RunAgent(selfBinary string, listen string) error {
-	dir, err := os.MkdirTemp("", "gatekeeper-demo-*")
+	dir, err := os.MkdirTemp("", "spotagentiq-demo-*")
 	if err != nil {
 		return err
 	}
 	token := "demo-token"
 	logPath := filepath.Join(dir, "audit.jsonl")
-	cfgPath := filepath.Join(dir, "gatekeeper.json")
+	cfgPath := filepath.Join(dir, "spotagentiq.json")
 	if err := os.WriteFile(cfgPath, []byte(DemoConfig(selfBinary, logPath, token, listen)), 0o600); err != nil {
 		return err
 	}
@@ -62,8 +62,8 @@ func RunAgent(selfBinary string, listen string) error {
 
 	say("")
 	say("┌──────────────────────────────────────────────────────────────┐")
-	say("│  GATEKEEPER DEMO                                             │")
-	say("│  An agent is about to use a CRM through Gatekeeper.          │")
+	say("│  SPOTAGENTIQ DEMO                                             │")
+	say("│  An agent is about to use a CRM through SpotAgentIQ.          │")
 	say("└──────────────────────────────────────────────────────────────┘")
 	say("")
 	say("  Inbox:  %s   (token: %s)", url, token)
@@ -106,7 +106,7 @@ func RunAgent(selfBinary string, listen string) error {
 	}
 	_ = ctx
 
-	step(1, "Agent connects to Gatekeeper (initialize)")
+	step(1, "Agent connects to SpotAgentIQ (initialize)")
 	if _, err := call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "demo-agent", "version": "1"}}); err != nil {
 		return err
 	}

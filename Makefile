@@ -4,7 +4,7 @@ LDFLAGS  = -s -w -X main.version=$(VERSION)
 .PHONY: build test vet fmt demo release docker clean
 
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/gatekeeper ./cmd/gatekeeper
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/spotagentiq ./cmd/spotagentiq
 
 test:
 	go test ./...
@@ -16,7 +16,7 @@ fmt:
 	gofmt -l -w .
 
 demo: build
-	./bin/gatekeeper demo
+	./bin/spotagentiq demo
 
 # Cross-compile release binaries into dist/.
 release:
@@ -26,12 +26,12 @@ release:
 		[ "$$os" = "windows" ] && ext=".exe"; \
 		echo "building $$os/$$arch"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags="$(LDFLAGS)" \
-			-o dist/gatekeeper_$(VERSION)_$${os}_$${arch}$$ext ./cmd/gatekeeper; \
+			-o dist/spotagentiq_$(VERSION)_$${os}_$${arch}$$ext ./cmd/spotagentiq; \
 	done
-	@cd dist && sha256sum gatekeeper_* > SHA256SUMS
+	@cd dist && sha256sum spotagentiq_* > SHA256SUMS
 
 docker:
-	docker build --build-arg VERSION=$(VERSION) -t gatekeeper:$(VERSION) -t gatekeeper:latest .
+	docker build --build-arg VERSION=$(VERSION) -t spotagentiq:$(VERSION) -t spotagentiq:latest .
 
 clean:
 	rm -rf bin dist
