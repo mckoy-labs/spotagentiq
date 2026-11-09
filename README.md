@@ -1,8 +1,14 @@
 # SpotAgentIQ
 
+[![ci](https://github.com/mckoy-labs/spotagentiq/actions/workflows/ci.yml/badge.svg)](https://github.com/mckoy-labs/spotagentiq/actions/workflows/ci.yml)
+[![audit log verified](https://github.com/mckoy-labs/spotagentiq/actions/workflows/verify.yml/badge.svg)](https://github.com/mckoy-labs/spotagentiq/actions/workflows/verify.yml)
+[![release](https://img.shields.io/github/v/release/mckoy-labs/spotagentiq)](https://github.com/mckoy-labs/spotagentiq/releases/latest)
+
 **Your agent can send the email. SpotAgentIQ decides whether it should.**
 
 Website and docs: https://www.spotagentiq.com
+
+⭐ **Star this if you'd use the Cloud.** It's how we decide what to build next.
 
 SpotAgentIQ sits between an AI agent and the tools it calls. It's an MCP server
 that wraps your real MCP servers. Every tool call passes through a policy you
@@ -35,10 +41,18 @@ did, who approved it, and that nobody edited the record afterwards.
 
 ## 60-second demo
 
+![spotagentiq demo: one call allowed, one blocked, one held then approved, one held then rejected](docs/demo.gif)
+
+Grab a binary for Linux or Windows from
+[Releases](https://github.com/mckoy-labs/spotagentiq/releases/latest), or
+build from source with Go:
+
 ```sh
-go install github.com/mckoy-labs/spotagentiq/cmd/spotagentiq@latest   # or grab a binary from Releases
+go install github.com/mckoy-labs/spotagentiq/cmd/spotagentiq@latest
 spotagentiq demo
 ```
+
+macOS binaries aren't published yet; `go install` works there but is untested.
 
 Then open <http://localhost:8484> (token `demo-token`). A scripted agent will
 read a customer (allowed), try to charge a card it pasted into a prompt
@@ -50,7 +64,10 @@ spotagentiq verify --log /tmp/spotagentiq-demo-*/audit.jsonl
 # OK: 9 entries, chain intact.
 ```
 
-Edit one character in that file and run it again.
+Edit one character in that file and run it again. CI does exactly that on
+every push: the [audit log verified](https://github.com/mckoy-labs/spotagentiq/actions/workflows/verify.yml)
+badge above is green only if the demo's log verifies and a one-character edit
+is caught.
 
 ## Install for real
 
@@ -83,6 +100,18 @@ A minimal config:
   "redact": ["password", "token", "ssn", "card_number"]
 }
 ```
+
+A tool server that needs credentials gets them through its own `env` block.
+It does not inherit your shell's environment, so one server can't read
+another's keys:
+
+```json
+{ "name": "crm", "command": "npx", "args": ["-y", "@acme/crm-mcp"],
+  "env": { "CRM_API_KEY": "${CRM_API_KEY}" } }
+```
+
+`${VAR}` is expanded from SpotAgentIQ's own environment in `env`, `args`,
+`token` and `slack_webhook`.
 
 ### 2. Point your agent at SpotAgentIQ instead of the tool server
 
@@ -128,24 +157,45 @@ in Slack with a link straight to it.
 | `approval_timeout` | How long a held call waits. Go duration (`10m`, `1h`). |
 | `default_action` | `allow`, `require_approval` or `deny` when no rule matches. |
 | `slack_webhook` | Optional incoming-webhook URL. |
-| `upstreams[]` | `name`, `command`, `args`, `env`, `cwd`. SpotAgentIQ launches each one. |
+| `upstreams[]` | `name`, `command`, `args`, `env`, `cwd`, `inherit_env`. SpotAgentIQ launches each one with a minimal environment plus its own `env`; see [Security model](#security-model). |
 | `rules[]` | Evaluated top to bottom; first match wins. |
 | `redact[]` | Argument keys (case-insensitive, nested) masked in logs and the inbox. |
 
 ### Rules
 
 ```json
-{ "match": "send_*", "action": "require_approval", "if_args_match": "(?i)refund", "reason": "..." }
+{ "match": "send_email", "action": "allow", "where": { "to": "^[^@\\s]+@yourcompany\\.com$" } }
+{ "match": "send_*", "action": "require_approval", "reason": "Outbound" }
+{ "match": "*", "action": "deny", "if_args_match": "\\b\\d{13,19}\\b", "reason": "Card number" }
 ```
 
-- `match` is a glob against the tool name (`send_*`, `*`, `delete_user`). Use
-  `upstream/tool` to scope it: `stripe/*`, `db/query`.
+- `match` is a glob. Without a `/` it is tested against the tool name
+  (`send_*`, `*`, `delete_user`). With a `/`, the part before the first `/` is
+  the upstream server and the rest is the tool: `stripe/*`, `db/query`,
+  `*/delete_*`. `*` matches anything, including `/`.
 - `action` is `allow`, `require_approval` or `deny`.
-- `if_args_match` is an optional regex tested against the JSON-encoded
-  arguments. The rule only fires if it matches. Combine a deny-on-pattern rule
-  with an allow rule for the same tool to get "reads are fine, writes need a
-  human".
+- `where` maps an argument to a regex its value must match: `"to"`,
+  `"customer.email"`. All entries must hold, a missing argument never matches,
+  and for an array every element must match. Use this whenever a rule depends
+  on what one specific argument is.
+- `if_args_match` is a regex tested against the whole arguments document. It
+  matches anywhere, which is what you want for tripwires ("deny anything that
+  contains a card number") and not what you want for allow rules, where a
+  decoy value in another field would satisfy it. SpotAgentIQ warns at startup
+  about allow rules that use it.
 - `reason` is what approvers see and what goes in the log.
+
+Arguments are parsed and re-serialised into one canonical form (sorted keys, no
+optional escapes, last value wins for a repeated key) before any rule sees
+them, and that same canonical document is what the tool server receives. A
+rule can't be dodged with `\u0034` for `4` or a duplicate key, because there is
+no difference between what was checked and what runs.
+
+Requests that aren't tool calls but read data or change state
+(`resources/read`, `prompts/get`, and any method this version doesn't
+recognise) go through the same rules and the same log. To policy they are tools
+on a reserved upstream called `mcp`: `{ "match": "mcp/resources/read",
+"action": "require_approval" }`. A bare `*` covers them too.
 
 When two upstreams expose a tool with the same name, both are exposed as
 `upstream__tool` so nothing is ambiguous.
@@ -175,6 +225,50 @@ ship the file to object storage with versioning, or periodically record the
 last hash somewhere the agent can't reach (a ticket, a Slack message, a
 timestamping service). Anyone holding that hash can later prove the log hasn't
 been rewritten up to that point.
+
+The CSV export prefixes any cell that starts with `=`, `+`, `-` or `@` with an
+apostrophe, so text an agent influenced can't run as a spreadsheet formula.
+Hashes are computed over the JSONL file; verify against that, not the CSV.
+
+## Security model
+
+What SpotAgentIQ enforces:
+
+- **What is checked is what runs.** Policy is evaluated on a canonical form of
+  the arguments and the tool server receives that same form.
+- **Everything that acts is gated.** Tool calls, resource reads, prompt
+  fetches and unknown methods all pass through policy and the log. Only
+  listings, pings and subscriptions are passed straight through.
+- **Fails closed.** If a decision can't be written to the audit log (full
+  disk, bad permissions), the call is refused. SpotAgentIQ won't start with an
+  unwritable log.
+- **Tool servers don't get your secrets.** Each upstream starts with a minimal
+  environment (`PATH`, home and temp directories, locale, proxy settings) plus
+  only the variables in its own `env` block. It can't read the inbox token or
+  another server's API keys. `"inherit_env": true` passes the full environment
+  to one server, still without the token; prefer listing what it needs.
+- **Timeouts reject.** An unanswered approval is a refusal, never a yes.
+
+What it does not do, so you can plan around it:
+
+- **Patterns are tripwires, not parsers.** A regex that blocks `DROP TABLE`
+  won't catch every phrasing, and `\d{13,19}` won't catch a card number with
+  spaces in it. Deny the obvious early; require approval for what matters.
+- **Allowed reads can still leak.** If an agent may read customer records and
+  may post to Slack, it can combine them. Hold the send.
+- **It can't see inside a tool server.** A server that ignores its arguments
+  and does something else needs sandboxing and narrow credentials.
+- **Tool descriptions pass through unchanged.** A malicious server can still
+  put instructions in them.
+- **The approver's name is typed, not verified,** and the inbox token is a
+  shared secret. Keep the inbox on localhost or a private network, behind TLS.
+- **Result summaries in the log are not redacted.** Only argument keys listed
+  in `redact` are masked.
+- **Someone with write access to the log can rewrite all of it.** The hash
+  chain makes edits evident only against a hash you stored somewhere else.
+
+Found a way around a rule? Please email security@spotagentiq.com rather than
+opening a public issue.
 
 ## Running it somewhere
 
@@ -215,7 +309,8 @@ the user it's waiting. Set `approval_timeout` shorter than your client's tool
 timeout if it has one.
 
 **Can the agent see the inbox or approve itself?** Only if you give it the
-token and network access to the inbox. Don't.
+token and network access to the inbox. Don't. Tool servers never receive the
+token: SpotAgentIQ strips it from their environment.
 
 **What about tools that aren't MCP?** Not yet. MCP is where agent tool use is
 converging; HTTP-API fronting is on the roadmap.
@@ -229,6 +324,7 @@ converging; HTTP-API fronting is on the roadmap.
 make test        # unit + end-to-end proxy tests
 make build       # bin/spotagentiq
 make release     # cross-compiled binaries in dist/
+goreleaser release --snapshot --clean   # what a tagged release will publish
 ```
 
 ## License

@@ -1,0 +1,44 @@
+# Proves the tamper-evident claim on every push: generate a real audit log by
+# running the demo, verify the hash chain, then edit one character and make
+# sure `spotagentiq verify` catches it.
+name: audit log verified
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.24" }
+      - run: make build
+
+      - name: Generate an audit log (demo with scripted approvals)
+        run: |
+          export TMPDIR="$RUNNER_TEMP/demo" && mkdir -p "$TMPDIR"
+          DELAY=0 scripts/auto-approve.sh &
+          timeout 120 ./bin/spotagentiq demo
+          wait
+          echo "AUDIT_LOG=$(ls "$TMPDIR"/spotagentiq-demo-*/audit.jsonl)" >> "$GITHUB_ENV"
+
+      - name: Verify the hash chain
+        run: ./bin/spotagentiq verify --log "$AUDIT_LOG" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Tamper with one entry and expect verify to fail
+        run: |
+          sed -i '3s/cus_1042/cus_1043/' "$AUDIT_LOG"
+          set +e
+          ./bin/spotagentiq verify --log "$AUDIT_LOG" | tee -a "$GITHUB_STEP_SUMMARY"
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" -ne 3 ]; then
+            echo "expected exit 3 for a tampered log, got $code" >&2
+            exit 1
+          fi
