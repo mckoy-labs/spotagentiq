@@ -21,7 +21,7 @@ import (
 )
 
 // Version is stamped into serverInfo.
-var Version = "0.1.0"
+var Version = "0.1.1"
 
 // Proxy fronts one or more upstream MCP servers.
 type Proxy struct {

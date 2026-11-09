@@ -32,7 +32,7 @@ import (
 	"github.com/mckoy-labs/spotagentiq/internal/proxy"
 )
 
-var version = "0.1.0"
+var version = "0.1.1"
 
 func main() {
 	log.SetFlags(log.Ltime)
