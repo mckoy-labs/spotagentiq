@@ -10,7 +10,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{ .Version }}
-    goos: [linux, windows]
+    goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
 
 archives:
@@ -27,6 +27,22 @@ archives:
 
 checksum:
   name_template: SHA256SUMS
+
+# Keyless signing with Sigstore: the release workflow's GitHub identity signs
+# the checksum file, so there is no private key to store or leak. Anyone can
+# check that a download came from this repository's CI:
+#
+#   cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json #     --certificate-identity-regexp '^https://github.com/mckoy-labs/spotagentiq/' #     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+#   sha256sum --check --ignore-missing SHA256SUMS
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
 
 changelog:
   use: github

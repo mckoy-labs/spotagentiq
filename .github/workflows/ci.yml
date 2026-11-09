@@ -5,27 +5,68 @@ on:
     tags: ["v*"]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Binaries ship for all three, so all three run the suite.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version: "1.24" }
-      - run: gofmt -l . && test -z "$(gofmt -l .)"
+      - name: gofmt
+        if: matrix.os == 'ubuntu-latest'
+        run: gofmt -l . && test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
 
-  release:
+  # Builds every platform and signs the checksums exactly as a release would,
+  # without publishing. A broken release pipeline shows up here, on an
+  # ordinary push, not on the day of a tag.
+  release-dry-run:
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions: { contents: write }
+    permissions:
+      contents: read
+      id-token: write # keyless signing
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
         with: { go-version: "1.24" }
+      - uses: sigstore/cosign-installer@v3
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: Verify the signature the way a user would
+        run: |
+          cd dist
+          cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity-regexp '^https://github.com/mckoy-labs/spotagentiq/' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          sha256sum --check --ignore-missing SHA256SUMS
+
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # keyless signing
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.24" }
+      - uses: sigstore/cosign-installer@v3
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
