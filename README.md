@@ -3,7 +3,7 @@
 [![ci](https://github.com/mckoy-labs/spotagentiq/actions/workflows/ci.yml/badge.svg)](https://github.com/mckoy-labs/spotagentiq/actions/workflows/ci.yml)
 [![audit log verified](https://github.com/mckoy-labs/spotagentiq/actions/workflows/verify.yml/badge.svg)](https://github.com/mckoy-labs/spotagentiq/actions/workflows/verify.yml)
 [![release](https://img.shields.io/github/v/release/mckoy-labs/spotagentiq)](https://github.com/mckoy-labs/spotagentiq/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mckoy-labs/spotagentiq)](https://goreportcard.com/report/github.com/mckoy-labs/spotagentiq)
+[![Go Reference](https://pkg.go.dev/badge/github.com/mckoy-labs/spotagentiq.svg)](https://pkg.go.dev/github.com/mckoy-labs/spotagentiq)
 [![license](https://img.shields.io/github/license/mckoy-labs/spotagentiq)](LICENSE)
 
 **Your agent can send the email. SpotAgentIQ decides whether it should.**
