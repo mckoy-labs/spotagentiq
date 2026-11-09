@@ -3,18 +3,52 @@
 [![ci](https://github.com/mckoy-labs/spotagentiq/actions/workflows/ci.yml/badge.svg)](https://github.com/mckoy-labs/spotagentiq/actions/workflows/ci.yml)
 [![audit log verified](https://github.com/mckoy-labs/spotagentiq/actions/workflows/verify.yml/badge.svg)](https://github.com/mckoy-labs/spotagentiq/actions/workflows/verify.yml)
 [![release](https://img.shields.io/github/v/release/mckoy-labs/spotagentiq)](https://github.com/mckoy-labs/spotagentiq/releases/latest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mckoy-labs/spotagentiq)](https://goreportcard.com/report/github.com/mckoy-labs/spotagentiq)
+[![license](https://img.shields.io/github/license/mckoy-labs/spotagentiq)](LICENSE)
 
 **Your agent can send the email. SpotAgentIQ decides whether it should.**
 
-Website and docs: https://www.spotagentiq.com
+An MCP proxy that lets tool calls through, holds them for a human, or blocks
+them, and keeps a hash-chained audit log of every decision.
 
-⭐ **Star this if you'd use the Cloud.** It's how we decide what to build next.
+![spotagentiq demo: one call allowed, one blocked, one held then approved, one held then rejected](docs/demo.gif)
+
+## Quickstart
+
+```sh
+# 1. Install: a signed binary from Releases (Linux, macOS, Windows), or
+go install github.com/mckoy-labs/spotagentiq/cmd/spotagentiq@latest
+
+# 2. Watch it work: four calls, one allowed, one blocked, two held for you
+spotagentiq demo
+
+# 3. Use it: write a config, then point your MCP client at SpotAgentIQ
+spotagentiq init > spotagentiq.json
+```
+
+The policy is a short list of rules. First match wins:
+
+```json
+"rules": [
+  { "match": "*",          "action": "deny",             "if_args_match": "\\b\\d{13,19}\\b", "reason": "Looks like a card number" },
+  { "match": "send_email", "action": "allow",            "where": { "to": "^[^@\\s]+@yourcompany\\.com$" } },
+  { "match": "send_*",     "action": "require_approval", "reason": "Outbound communication" },
+  { "match": "delete_*",   "action": "require_approval", "reason": "Destructive" }
+]
+```
+
+[Policy docs](https://www.spotagentiq.com/docs/policy) ·
+[Install for real](#install-for-real) ·
+[Security model](#security-model) ·
+[Website](https://www.spotagentiq.com)
+
+## How it works
 
 SpotAgentIQ sits between an AI agent and the tools it calls. It's an MCP server
-that wraps your real MCP servers. Every tool call passes through a policy you
-write in five lines of JSON: let it through, hold it for a human, or block it.
-Everything is written to a hash-chained audit log that proves what the agent
-did, who approved it, and that nobody edited the record afterwards.
+that wraps your real MCP servers. Every tool call passes through your policy:
+let it through, hold it for a human, or block it. Everything is written to a
+hash-chained audit log that proves what the agent did, who approved it, and
+that nobody edited the record afterwards.
 
 ```
   Claude / Cursor / your agent
@@ -39,20 +73,9 @@ did, who approved it, and that nobody edited the record afterwards.
 - **Agent-friendly failures.** A blocked call comes back as a tool result the
   agent can read and explain to its user, not a crash.
 
-## 60-second demo
+## The 60-second demo
 
-![spotagentiq demo: one call allowed, one blocked, one held then approved, one held then rejected](docs/demo.gif)
-
-Grab a binary for Linux or Windows from
-[Releases](https://github.com/mckoy-labs/spotagentiq/releases/latest), or
-build from source with Go:
-
-```sh
-go install github.com/mckoy-labs/spotagentiq/cmd/spotagentiq@latest
-spotagentiq demo
-```
-
-macOS binaries aren't published yet; `go install` works there but is untested.
+`spotagentiq demo` starts a fake CRM tool server and a scripted agent.
 
 Then open <http://localhost:8484> (token `demo-token`). A scripted agent will
 read a customer (allowed), try to charge a card it pasted into a prompt
@@ -269,8 +292,7 @@ What it does not do, so you can plan around it:
 - **Someone with write access to the log can rewrite all of it.** The hash
   chain makes edits evident only against a hash you stored somewhere else.
 
-Found a way around a rule? Please email security@spotagentiq.com rather than
-opening a public issue.
+Found a way around a rule? See [SECURITY.md](SECURITY.md).
 
 ## Running it somewhere
 
@@ -325,6 +347,20 @@ converging; HTTP-API fronting is on the roadmap.
 **Does it slow down allowed calls?** One policy evaluation and one log write
 (fsynced) per call — under a millisecond on ordinary disks.
 
+## Verifying a release
+
+Release checksums are signed by this repository's CI with Sigstore (keyless, so
+there is no signing key to steal):
+
+```sh
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/mckoy-labs/spotagentiq/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
+
 ## Development
 
 ```sh
@@ -333,6 +369,14 @@ make build       # bin/spotagentiq
 make release     # cross-compiled binaries in dist/
 goreleaser release --snapshot --clean   # what a tagged release will publish
 ```
+
+## SpotAgentIQ Cloud
+
+A hosted control plane for teams is in development: approvals from Slack and
+your phone, per-person sign-in, managed log retention. The proxy in this
+repository stays open source and keeps working on its own.
+[Join the waitlist](https://www.spotagentiq.com/cloud), and star the repo if
+you'd use it. It's how we decide what to build next.
 
 ## License
 
