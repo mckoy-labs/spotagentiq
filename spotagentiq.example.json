@@ -2,7 +2,7 @@
   "agent": "my-agent",
   "approval_timeout": "10m",
   "default_action": "allow",
-  "listen": ":8484",
+  "listen": "127.0.0.1:8484",
   "log_path": "spotagentiq.audit.jsonl",
   "principal": "",
   "public_url": "http://localhost:8484",

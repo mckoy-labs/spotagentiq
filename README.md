@@ -83,7 +83,7 @@ A minimal config:
 ```json
 {
   "agent": "support-bot",
-  "listen": ":8484",
+  "listen": "127.0.0.1:8484",
   "token": "${SPOTAGENTIQ_TOKEN}",
   "log_path": "audit.jsonl",
   "approval_timeout": "10m",
@@ -150,7 +150,7 @@ in Slack with a link straight to it.
 |---|---|
 | `agent` | Name shown in logs and alerts. |
 | `principal` | Optional. The human the agent acts for (`ops@acme.com`). Recorded on every entry. |
-| `listen` | Inbox address, e.g. `:8484`. Required if any rule needs approval. |
+| `listen` | Inbox address, e.g. `127.0.0.1:8484`. Required if any rule needs approval. `:8484` listens on every interface. |
 | `public_url` | How humans reach the inbox; used in Slack links. Defaults from `listen`. |
 | `token` | Inbox password. `${ENV}` expansion supported; falls back to `SPOTAGENTIQ_TOKEN`. |
 | `log_path` | Audit log file (JSONL). |
@@ -261,7 +261,9 @@ What it does not do, so you can plan around it:
 - **Tool descriptions pass through unchanged.** A malicious server can still
   put instructions in them.
 - **The approver's name is typed, not verified,** and the inbox token is a
-  shared secret. Keep the inbox on localhost or a private network, behind TLS.
+  shared secret. The examples listen on `127.0.0.1`; SpotAgentIQ warns at
+  startup if the inbox is reachable from other machines, because it speaks
+  plain HTTP. Put TLS in front of it before you expose it.
 - **Result summaries in the log are not redacted.** Only argument keys listed
   in `redact` are masked.
 - **Someone with write access to the log can rewrite all of it.** The hash
@@ -280,7 +282,10 @@ docker run -p 8484:8484 -e SPOTAGENTIQ_TOKEN=... \
 ```
 
 SpotAgentIQ launches upstreams as child processes, so the container needs
-whatever they need. The default image includes Node and Python.
+whatever they need. The default image includes Node and Python. Inside a
+container the inbox has to listen on all interfaces for the port mapping to
+work, so use `"listen": "0.0.0.0:8484"` in that config and publish the port
+only to a private network.
 
 Put the inbox behind your VPN or a reverse proxy with TLS. The token is a
 shared secret, not an identity layer; it's fine for a team, not for the
@@ -288,7 +293,9 @@ internet.
 
 ## HTTP API
 
-All endpoints take `Authorization: Bearer <token>` (or `?token=`).
+All endpoints except `/healthz` need `Authorization: Bearer <token>`. The token
+is not accepted in the URL or a cookie. Ten wrong tokens in a minute from one
+address locks that address out for five minutes.
 
 | | |
 |---|---|

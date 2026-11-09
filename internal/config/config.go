@@ -149,7 +149,7 @@ func (c *Config) Validate() error {
 		}
 	}
 	if needsInbox && c.Listen == "" {
-		return errors.New("config: rules require approval but listen is empty; set listen (e.g. \":8484\")")
+		return errors.New("config: rules require approval but listen is empty; set listen (e.g. \"127.0.0.1:8484\")")
 	}
 	if c.Listen != "" && c.Token == "" {
 		return errors.New("config: token is required when the inbox is enabled (set token or SPOTAGENTIQ_TOKEN)")

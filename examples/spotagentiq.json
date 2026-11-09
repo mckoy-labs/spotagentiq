@@ -1,7 +1,7 @@
 {
   "agent": "support-bot",
   "principal": "ops@yourcompany.com",
-  "listen": ":8484",
+  "listen": "127.0.0.1:8484",
   "public_url": "https://spotagentiq.internal.yourcompany.com",
   "token": "${SPOTAGENTIQ_TOKEN}",
   "log_path": "/var/lib/spotagentiq/audit.jsonl",

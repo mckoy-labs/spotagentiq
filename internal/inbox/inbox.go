@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mckoy-labs/spotagentiq/internal/approvals"
@@ -30,6 +32,8 @@ type Server struct {
 	Agent   string
 	Policy  *policy.Policy
 	Version string
+
+	guesses guessLimiter
 }
 
 // Handler returns the HTTP handler.
@@ -59,23 +63,87 @@ func securityHeaders(h http.Handler) http.Handler {
 	})
 }
 
+// auth requires the token in the Authorization header. It is deliberately not
+// accepted from the query string or a cookie: a token in a URL ends up in
+// proxy logs, browser history and Referer headers, and a cookie would make
+// every endpoint a cross-site request forgery target.
 func (s *Server) auth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if tok == "" {
-			tok = r.URL.Query().Get("token")
+		ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+		if wait := s.guesses.blockedFor(ip); wait > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "too many failed attempts; try again later"})
+			return
 		}
-		if tok == "" {
-			if c, err := r.Cookie("gk_token"); err == nil {
-				tok = c.Value
+		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || s.Token == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) != 1 {
+			if s.guesses.fail(ip) {
+				log.Printf("inbox: %d failed token attempts from %s; blocking it for %s", maxGuesses, ip, guessLockout)
 			}
-		}
-		if s.Token == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(s.Token)) != 1 {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
 		}
 		next(w, r)
 	})
+}
+
+// Token guessing is slowed to maxGuesses per guessWindow per client address,
+// after which that address is refused for guessLockout. A 128-bit token
+// can't be guessed either way; this protects short ones and keeps the log
+// honest about who is trying.
+const (
+	maxGuesses   = 10
+	guessWindow  = time.Minute
+	guessLockout = 5 * time.Minute
+)
+
+type guessLimiter struct {
+	mu sync.Mutex
+	m  map[string]*guessState
+}
+
+type guessState struct {
+	n       int
+	first   time.Time
+	blocked time.Time // zero unless locked out
+}
+
+func (g *guessLimiter) blockedFor(ip string) time.Duration {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if st, ok := g.m[ip]; ok && time.Now().Before(st.blocked) {
+		return time.Until(st.blocked)
+	}
+	return 0
+}
+
+// fail records a wrong token and reports whether this one triggered a lockout.
+func (g *guessLimiter) fail(ip string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	now := time.Now()
+	if g.m == nil {
+		g.m = map[string]*guessState{}
+	}
+	if len(g.m) > 10000 { // forget addresses that have gone quiet
+		for k, st := range g.m {
+			if now.Sub(st.first) > guessWindow && now.After(st.blocked) {
+				delete(g.m, k)
+			}
+		}
+	}
+	st, ok := g.m[ip]
+	if !ok || now.Sub(st.first) > guessWindow {
+		st = &guessState{first: now}
+		g.m[ip] = st
+	}
+	st.n++
+	if st.n >= maxGuesses {
+		st.blocked = now.Add(guessLockout)
+		st.n, st.first = 0, now
+		return true
+	}
+	return false
 }
 
 type stateResponse struct {

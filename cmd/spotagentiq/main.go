@@ -80,7 +80,7 @@ Usage:
   spotagentiq init                               Print a starter config
   spotagentiq verify --log audit.jsonl           Verify the audit log hash chain
   spotagentiq export --log audit.jsonl           Write the audit log as CSV to stdout
-  spotagentiq demo   [--listen :8484]            Guided demo with a fake CRM
+  spotagentiq demo   [--listen 127.0.0.1:8484]   Guided demo with a fake CRM
   spotagentiq version
 
 Point your agent (Claude Desktop, Claude Code, Cursor, your own code) at
@@ -120,6 +120,12 @@ func cmdServe(args []string) error {
 		if err != nil {
 			return fmt.Errorf("inbox listen %s: %w", cfg.Listen, err)
 		}
+		if !loopbackOnly(cfg.Listen) {
+			log.Printf("spotagentiq: WARNING: the inbox on %s is reachable from other machines over plain HTTP. Put TLS in front of it, or set \"listen\": \"127.0.0.1:8484\".", cfg.Listen)
+			if len(cfg.Token) < 16 {
+				log.Printf("spotagentiq: WARNING: the inbox token is short (%d characters). Generate one with: openssl rand -hex 16", len(cfg.Token))
+			}
+		}
 		hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 		go func() {
 			if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -144,7 +150,7 @@ func cmdInit(args []string) error {
 	cfg := map[string]any{
 		"agent":            "my-agent",
 		"principal":        "",
-		"listen":           ":8484",
+		"listen":           "127.0.0.1:8484",
 		"public_url":       "http://localhost:8484",
 		"token":            "${SPOTAGENTIQ_TOKEN}",
 		"log_path":         "spotagentiq.audit.jsonl",
@@ -204,11 +210,25 @@ func cmdExport(args []string) error {
 
 func cmdDemo(args []string) error {
 	fs := flag.NewFlagSet("demo", flag.ExitOnError)
-	listen := fs.String("listen", ":8484", "inbox address")
+	listen := fs.String("listen", "127.0.0.1:8484", "inbox address")
 	_ = fs.Parse(args)
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	return demo.RunAgent(self, *listen)
+}
+
+// loopbackOnly reports whether a listen address accepts connections from this
+// machine only.
+func loopbackOnly(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false // ":8484" binds every interface
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

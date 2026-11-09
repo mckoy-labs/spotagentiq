@@ -91,7 +91,7 @@
     <div class="toolbar">
       <div class="chain"><span class="dot" id="chainDot"></span><span id="chainText">checking chain…</span></div>
       <div style="display:flex;gap:8px">
-        <a class="btn" id="exportLink"><button>Export CSV</button></a>
+        <button id="exportBtn">Export CSV</button>
         <button id="policyBtn">View policy</button>
       </div>
     </div>
@@ -106,10 +106,9 @@
 <script>
 (function () {
   const $ = (s) => document.querySelector(s);
-  // A ?token= in the URL (e.g. from a Slack link) signs you in once, then is
-  // removed from the address bar so it isn't left in history.
-  const urlTok = new URLSearchParams(location.search).get('token');
-  if (urlTok) { localStorage.setItem('gk_token', urlTok); history.replaceState(null, '', location.pathname + location.hash); }
+  // The token only ever travels in the Authorization header. If an old link
+  // put one in the URL, drop it from the address bar and don't use it.
+  if (new URLSearchParams(location.search).has('token')) history.replaceState(null, '', location.pathname + location.hash);
   let token = localStorage.getItem('gk_token') || '';
   let seen = new Set();
   const approverEl = $('#approver');
@@ -121,6 +120,7 @@
   async function api(path, opts) {
     const r = await fetch(path, Object.assign({ headers: headers() }, opts || {}));
     if (r.status === 401) { showLogin('That token was not accepted.'); throw new Error('unauthorized'); }
+    if (r.status === 429) { showLogin('Too many wrong tokens from this address. Wait a few minutes and try again.'); throw new Error('rate limited'); }
     return r.json();
   }
 
@@ -130,9 +130,19 @@
   }
   function showApp() {
     $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
-    $('#exportLink').href = '/export.csv?token=' + encodeURIComponent(token);
   }
-  $('#tokenBtn').onclick = () => { token = $('#tokenInput').value.trim(); localStorage.setItem('gk_token', token); document.cookie = 'gk_token=' + encodeURIComponent(token) + '; path=/; SameSite=Strict'; refresh(); };
+  // A link can't send an Authorization header, so fetch the CSV and hand the
+  // browser a local blob to save.
+  $('#exportBtn').onclick = async () => {
+    const r = await fetch('/export.csv', { headers: headers() });
+    if (!r.ok) { if (r.status === 401) showLogin('That token was not accepted.'); return; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = 'spotagentiq-audit-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  $('#tokenBtn').onclick = () => { token = $('#tokenInput').value.trim(); localStorage.setItem('gk_token', token); refresh(); };
   $('#tokenInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#tokenBtn').click(); });
 
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
