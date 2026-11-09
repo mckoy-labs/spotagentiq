@@ -2,6 +2,7 @@ package audit
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -108,5 +109,33 @@ func TestVerifyMissingFile(t *testing.T) {
 	res, err := Verify(filepath.Join(t.TempDir(), "nope.jsonl"))
 	if err != nil || !res.OK || res.Entries != 0 {
 		t.Fatalf("missing file should verify as empty: %+v %v", res, err)
+	}
+}
+
+// Text an agent can influence must not become a live spreadsheet formula.
+func TestCSVNeutralisesFormulas(t *testing.T) {
+	var buf bytes.Buffer
+	err := WriteCSV(&buf, []Entry{{
+		Seq: 1, Event: EventCompleted, Tool: "=cmd|' /C calc'!A0", Reason: "+SUM(1,1)", Approver: "@evil",
+		Result: "-2+3", Args: json.RawMessage(`{"ok":true}`), Hash: "abc",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := csv.NewReader(&buf).ReadAll()
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("csv: %v %d rows", err, len(rows))
+	}
+	col := map[string]string{}
+	for i, name := range rows[0] {
+		col[name] = rows[1][i]
+	}
+	for _, name := range []string{"tool", "reason", "approver", "result"} {
+		if !strings.HasPrefix(col[name], "'") {
+			t.Errorf("%s = %q, want a leading apostrophe", name, col[name])
+		}
+	}
+	if col["args"] != `{"ok":true}` || col["hash"] != "abc" {
+		t.Errorf("ordinary cells changed: args=%q hash=%q", col["args"], col["hash"])
 	}
 }

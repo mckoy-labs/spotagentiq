@@ -234,8 +234,8 @@ func WriteCSV(w io.Writer, entries []Entry) error {
 		row := []string{
 			strconv.FormatInt(e.Seq, 10),
 			e.Time.UTC().Format(time.RFC3339),
-			e.Event, e.CallID, e.Agent, e.Principal, e.Upstream, e.Tool,
-			string(e.Args), e.Rule, e.Reason, e.Approver, e.Result, e.PrevHash, e.Hash,
+			e.Event, cell(e.CallID), cell(e.Agent), cell(e.Principal), cell(e.Upstream), cell(e.Tool),
+			cell(string(e.Args)), cell(e.Rule), cell(e.Reason), cell(e.Approver), cell(e.Result), e.PrevHash, e.Hash,
 		}
 		if err := cw.Write(row); err != nil {
 			return err
@@ -243,4 +243,20 @@ func WriteCSV(w io.Writer, entries []Entry) error {
 	}
 	cw.Flush()
 	return cw.Error()
+}
+
+// cell neutralises spreadsheet formulas. Tool names, arguments, results and
+// approver notes are influenced by the agent and by whatever it read, and a
+// value such as =HYPERLINK(...) would otherwise run when an auditor opens the
+// export in Excel or Sheets. A leading apostrophe makes the cell plain text.
+// The JSONL log is untouched; verify hashes against that, not the CSV.
+func cell(v string) string {
+	if v == "" {
+		return v
+	}
+	switch v[0] {
+	case '=', '+', '-', '@', 0x09, 0x0d: // 0x09 tab, 0x0d carriage return
+		return "'" + v
+	}
+	return v
 }
