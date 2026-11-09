@@ -1,5 +1,6 @@
 // Package proxy is the gate: it speaks MCP to the agent on one side and to the
-// real tool servers on the other, and every tools/call passes through policy.
+// real tool servers on the other. Every tools/call, and every other request
+// that reads data or changes state, passes through policy and the audit log.
 package proxy
 
 import (
@@ -73,7 +74,7 @@ func New(cfg *config.Config, pol *policy.Policy, lg *audit.Log, store *approvals
 // Run starts the upstreams and serves the client until it disconnects.
 func (p *Proxy) Run(ctx context.Context) error {
 	for _, uc := range p.cfg.Upstreams {
-		u, err := startUpstream(uc)
+		u, err := startUpstream(uc, p.cfg.Token)
 		if err != nil {
 			p.shutdown()
 			return err
@@ -85,8 +86,14 @@ func (p *Proxy) Run(ctx context.Context) error {
 	}
 	defer p.shutdown()
 
-	_, _ = p.log.Append(audit.Entry{Event: audit.EventStartup, Agent: p.cfg.Agent, Principal: p.cfg.Principal,
-		Reason: fmt.Sprintf("spotagentiq %s, %d upstream(s), %d rule(s), default %s", Version, len(p.upstreams), len(p.policy.Rules()), p.policy.DefaultAction())})
+	// Refuse to run at all if the audit log can't be written.
+	if err := p.record(audit.Entry{Event: audit.EventStartup, Agent: p.cfg.Agent, Principal: p.cfg.Principal,
+		Reason: fmt.Sprintf("spotagentiq %s, %d upstream(s), %d rule(s), default %s", Version, len(p.upstreams), len(p.policy.Rules()), p.policy.DefaultAction())}); err != nil {
+		return fmt.Errorf("audit log is not writable: %w", err)
+	}
+	for _, w := range p.policy.Warnings() {
+		log.Printf("spotagentiq: policy warning: %s", w)
+	}
 
 	for {
 		m, err := p.client.Read()
@@ -133,7 +140,11 @@ func (p *Proxy) handleRequest(ctx context.Context, m *jsonrpc.Message) {
 		p.handleMergedList(ctx, m)
 	default:
 		p.waitInit()
-		p.forwardFirstSuccess(ctx, m)
+		if ungated[m.Method] {
+			p.send(p.firstSuccess(ctx, m))
+			return
+		}
+		p.handleGated(ctx, m)
 	}
 }
 
@@ -273,9 +284,127 @@ func (p *Proxy) handleToolsList(ctx context.Context, m *jsonrpc.Message) {
 type toolCallParams struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
-	Meta      *struct {
-		ProgressToken json.RawMessage `json:"progressToken"`
-	} `json:"_meta,omitempty"`
+}
+
+// record appends to the audit log. A failure is reported on stderr and
+// returned, so callers can refuse to act on something they could not record.
+func (p *Proxy) record(e audit.Entry) error {
+	if _, err := p.log.Append(e); err != nil {
+		log.Printf("spotagentiq: AUDIT LOG WRITE FAILED (%s %s): %v", e.Event, e.Tool, err)
+		return err
+	}
+	return nil
+}
+
+const auditDownMsg = "SpotAgentIQ could not write to its audit log, so this action was not performed. An administrator needs to check the log file and disk"
+
+// authorize is the gate. It evaluates policy for one request, records the
+// decision and, when the policy says so, waits for a human.
+//
+// args must be canonical JSON: the caller forwards exactly these bytes, so
+// what was evaluated, what the approver saw and what the upstream receives
+// are the same document.
+//
+// It returns ok=false when the request must not be forwarded; refuse has then
+// already been called with a message for the agent. The gate fails closed: if
+// the decision cannot be written to the audit log, the request is refused.
+func (p *Proxy) authorize(upName, name string, args, rawParams json.RawMessage, refuse func(msg string)) (base audit.Entry, ok bool) {
+	redacted := p.policy.Redact(args)
+	dec := p.policy.Evaluate(upName, name, args)
+	ruleName := ""
+	if dec.Rule != nil {
+		ruleName = dec.Rule.Match
+	}
+	base = audit.Entry{
+		CallID: fmt.Sprintf("call_%d_%s", time.Now().UnixNano(), name),
+		Agent:  p.cfg.Agent, Principal: p.cfg.Principal,
+		Upstream: upName, Tool: name, Args: redacted, Rule: ruleName, Reason: dec.Reason,
+	}
+
+	switch dec.Action {
+	case policy.Deny:
+		_ = p.record(withEvent(base, audit.EventDenied, ""))
+		log.Printf("spotagentiq: DENIED %s (%s)", name, dec.Reason)
+		refuse(fmt.Sprintf("Blocked by SpotAgentIQ policy: %s. This action was not performed.", dec.Reason))
+		return base, false
+
+	case policy.RequireApproval:
+		if p.record(withEvent(base, audit.EventPending, "")) != nil {
+			refuse(auditDownMsg + ".")
+			return base, false
+		}
+		req := p.approvals.Create(approvals.Request{
+			Agent: p.cfg.Agent, Principal: p.cfg.Principal, Upstream: upName, Tool: name,
+			Args: redacted, Reason: dec.Reason, Rule: ruleName,
+		}, p.cfg.Timeout())
+		log.Printf("spotagentiq: HELD %s for approval (%s) id=%s", name, dec.Reason, req.ID)
+
+		stopProgress := p.startProgress(progressToken(rawParams), req)
+		d := p.approvals.Wait(req)
+		stopProgress()
+
+		switch d.Status {
+		case approvals.StatusApproved:
+			e := base
+			e.Event, e.Approver, e.Reason = audit.EventApproved, d.Approver, nonEmpty(d.Note, dec.Reason)
+			if p.record(e) != nil {
+				refuse(auditDownMsg + ", even though it was approved.")
+				return base, false
+			}
+			log.Printf("spotagentiq: APPROVED %s by %s", name, d.Approver)
+		case approvals.StatusRejected:
+			e := base
+			e.Event, e.Approver, e.Reason = audit.EventRejected, d.Approver, nonEmpty(d.Note, "rejected")
+			_ = p.record(e)
+			log.Printf("spotagentiq: REJECTED %s by %s", name, d.Approver)
+			msg := "Rejected by a human reviewer"
+			if d.Approver != "" {
+				msg += " (" + d.Approver + ")"
+			}
+			if d.Note != "" {
+				msg += ": " + d.Note
+			}
+			refuse(msg + ". This action was not performed.")
+			return base, false
+		default:
+			_ = p.record(withEvent(base, audit.EventTimeout, ""))
+			log.Printf("spotagentiq: TIMEOUT waiting for approval of %s", name)
+			refuse("No human approved this action within the allowed time. This action was not performed.")
+			return base, false
+		}
+
+	default: // allow
+		if p.record(withEvent(base, audit.EventAllowed, "")) != nil {
+			refuse(auditDownMsg + ".")
+			return base, false
+		}
+	}
+	return base, true
+}
+
+// canonicalObject canonicalizes raw, which must be a JSON object (or absent).
+func canonicalObject(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return json.RawMessage("{}"), nil
+	}
+	c, err := policy.Canonicalize(raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(c) == 0 || c[0] != '{' {
+		return nil, fmt.Errorf("must be a JSON object")
+	}
+	return c, nil
+}
+
+func progressToken(params json.RawMessage) json.RawMessage {
+	var p struct {
+		Meta struct {
+			ProgressToken json.RawMessage `json:"progressToken"`
+		} `json:"_meta"`
+	}
+	_ = json.Unmarshal(params, &p)
+	return p.Meta.ProgressToken
 }
 
 func (p *Proxy) handleToolsCall(ctx context.Context, m *jsonrpc.Message) {
@@ -298,79 +427,19 @@ func (p *Proxy) handleToolsCall(ctx context.Context, m *jsonrpc.Message) {
 			return
 		}
 	}
-
-	args := params.Arguments
-	if len(args) == 0 {
-		args = json.RawMessage("{}")
-	}
-	redacted := p.policy.Redact(args)
-	callID := fmt.Sprintf("call_%d_%s", time.Now().UnixNano(), params.Name)
-	dec := p.policy.Evaluate(route.up.name, route.realName, args)
-	ruleName := ""
-	if dec.Rule != nil {
-		ruleName = dec.Rule.Match
-	}
-	base := audit.Entry{CallID: callID, Agent: p.cfg.Agent, Principal: p.cfg.Principal, Upstream: route.up.name, Tool: route.realName, Args: redacted, Rule: ruleName, Reason: dec.Reason}
-
-	switch dec.Action {
-	case policy.Deny:
-		e := base
-		e.Event = audit.EventDenied
-		_, _ = p.log.Append(e)
-		log.Printf("spotagentiq: DENIED %s (%s)", route.realName, dec.Reason)
-		p.replyToolBlocked(m.ID, fmt.Sprintf("Blocked by SpotAgentIQ policy: %s. This action was not performed.", dec.Reason))
+	args, err := canonicalObject(params.Arguments)
+	if err != nil {
+		p.replyError(m.ID, jsonrpc.CodeInvalidParams, "tools/call: arguments "+err.Error())
 		return
-
-	case policy.RequireApproval:
-		e := base
-		e.Event = audit.EventPending
-		_, _ = p.log.Append(e)
-		req := p.approvals.Create(approvals.Request{
-			Agent: p.cfg.Agent, Principal: p.cfg.Principal, Upstream: route.up.name, Tool: route.realName,
-			Args: redacted, Reason: dec.Reason, Rule: ruleName,
-		}, p.cfg.Timeout())
-		log.Printf("spotagentiq: HELD %s for approval (%s) id=%s", route.realName, dec.Reason, req.ID)
-
-		stopProgress := p.startProgress(params, req)
-		d := p.approvals.Wait(req)
-		stopProgress()
-
-		switch d.Status {
-		case approvals.StatusApproved:
-			e := base
-			e.Event, e.Approver, e.Reason = audit.EventApproved, d.Approver, nonEmpty(d.Note, dec.Reason)
-			_, _ = p.log.Append(e)
-			log.Printf("spotagentiq: APPROVED %s by %s", route.realName, d.Approver)
-		case approvals.StatusRejected:
-			e := base
-			e.Event, e.Approver, e.Reason = audit.EventRejected, d.Approver, nonEmpty(d.Note, "rejected")
-			_, _ = p.log.Append(e)
-			log.Printf("spotagentiq: REJECTED %s by %s", route.realName, d.Approver)
-			msg := "Rejected by a human reviewer"
-			if d.Approver != "" {
-				msg += " (" + d.Approver + ")"
-			}
-			if d.Note != "" {
-				msg += ": " + d.Note
-			}
-			p.replyToolBlocked(m.ID, msg+". This action was not performed.")
-			return
-		default:
-			e := base
-			e.Event = audit.EventTimeout
-			_, _ = p.log.Append(e)
-			log.Printf("spotagentiq: TIMEOUT waiting for approval of %s", route.realName)
-			p.replyToolBlocked(m.ID, "No human approved this action within the allowed time. This action was not performed.")
-			return
-		}
-
-	case policy.Allow:
-		e := base
-		e.Event = audit.EventAllowed
-		_, _ = p.log.Append(e)
 	}
 
-	// Forward to the real server with the real tool name.
+	base, ok := p.authorize(route.up.name, route.realName, args, m.Params, func(msg string) { p.replyToolBlocked(m.ID, msg) })
+	if !ok {
+		return
+	}
+
+	// Forward to the real server with the real tool name and the canonical
+	// arguments policy just evaluated: never the bytes the client sent.
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(m.Params, &raw)
 	if raw == nil {
@@ -378,26 +447,67 @@ func (p *Proxy) handleToolsCall(ctx context.Context, m *jsonrpc.Message) {
 	}
 	nm, _ := json.Marshal(route.realName)
 	raw["name"] = nm
+	raw["arguments"] = args
 	fwd, _ := json.Marshal(raw)
 	resp, err := route.up.callRaw(ctx, "tools/call", fwd)
 	if err != nil {
-		_, _ = p.log.Append(withEvent(base, audit.EventFailed, err.Error()))
+		_ = p.record(withEvent(base, audit.EventFailed, err.Error()))
 		p.replyError(m.ID, jsonrpc.CodeInternal, "upstream error: "+err.Error())
 		return
 	}
 	if resp.Error != nil {
-		_, _ = p.log.Append(withEvent(base, audit.EventFailed, resp.Error.Message))
+		_ = p.record(withEvent(base, audit.EventFailed, resp.Error.Message))
 		p.send(&jsonrpc.Message{ID: m.ID, Error: resp.Error})
 		return
 	}
-	_, _ = p.log.Append(withEvent(base, audit.EventCompleted, summarizeResult(resp.Result)))
+	_ = p.record(withEvent(base, audit.EventCompleted, summarizeResult(resp.Result)))
 	p.send(&jsonrpc.Message{ID: m.ID, Result: resp.Result})
+}
+
+// ungated are requests that change nothing and return no data of their own.
+// Every other non-tool request (resources/read, prompts/get, and any method
+// this version has never heard of) goes through the gate like a tool call.
+var ungated = map[string]bool{
+	"logging/setLevel":      true,
+	"completion/complete":   true,
+	"resources/subscribe":   true,
+	"resources/unsubscribe": true,
+}
+
+// codeBlocked is the JSON-RPC error code for a request refused by policy.
+const codeBlocked = -32001
+
+// handleGated applies policy and auditing to MCP requests other than
+// tools/call. For policy they are a "tool" named after the method on the
+// reserved upstream "mcp", so a rule reads {"match": "mcp/resources/read", ...}
+// and a bare "*" covers them too.
+func (p *Proxy) handleGated(ctx context.Context, m *jsonrpc.Message) {
+	params, err := canonicalObject(m.Params)
+	if err != nil {
+		p.replyError(m.ID, jsonrpc.CodeInvalidParams, m.Method+": params "+err.Error())
+		return
+	}
+	base, ok := p.authorize(config.ReservedUpstream, m.Method, params, m.Params, func(msg string) { p.replyError(m.ID, codeBlocked, msg) })
+	if !ok {
+		return
+	}
+	fwd := *m
+	if len(m.Params) > 0 {
+		fwd.Params = params
+	}
+	resp := p.firstSuccess(ctx, &fwd)
+	if resp.Error != nil {
+		_ = p.record(withEvent(base, audit.EventFailed, resp.Error.Message))
+	} else {
+		_ = p.record(withEvent(base, audit.EventCompleted, "ok"))
+	}
+	p.send(resp)
 }
 
 // startProgress keeps the client informed (and the connection warm) while a
 // call waits for a human, if the client supplied a progress token.
-func (p *Proxy) startProgress(params toolCallParams, req *approvals.Request) func() {
-	if params.Meta == nil || len(params.Meta.ProgressToken) == 0 {
+func (p *Proxy) startProgress(token json.RawMessage, req *approvals.Request) func() {
+	if len(token) == 0 || string(token) == "null" {
 		return func() {}
 	}
 	stop := make(chan struct{})
@@ -406,7 +516,7 @@ func (p *Proxy) startProgress(params toolCallParams, req *approvals.Request) fun
 		defer t.Stop()
 		send := func(msg string) {
 			n, _ := jsonrpc.NewNotification("notifications/progress", map[string]any{
-				"progressToken": params.Meta.ProgressToken, "progress": 0, "message": msg,
+				"progressToken": token, "progress": 0, "message": msg,
 			})
 			_ = p.client.Write(n)
 		}
@@ -494,9 +604,9 @@ func (p *Proxy) handleMergedList(ctx context.Context, m *jsonrpc.Message) {
 	p.reply(m.ID, map[string]any{key: merged})
 }
 
-// forwardFirstSuccess tries each upstream in order and returns the first
-// non-error response (or the last error).
-func (p *Proxy) forwardFirstSuccess(ctx context.Context, m *jsonrpc.Message) {
+// firstSuccess tries each upstream in order and returns the first non-error
+// response (or the last error), addressed to the client's request ID.
+func (p *Proxy) firstSuccess(ctx context.Context, m *jsonrpc.Message) *jsonrpc.Message {
 	var last *jsonrpc.Message
 	for _, u := range p.upstreams {
 		resp, err := u.callRaw(ctx, m.Method, m.Params)
@@ -505,15 +615,14 @@ func (p *Proxy) forwardFirstSuccess(ctx context.Context, m *jsonrpc.Message) {
 			continue
 		}
 		if resp.Error == nil {
-			p.send(&jsonrpc.Message{ID: m.ID, Result: resp.Result})
-			return
+			return &jsonrpc.Message{ID: m.ID, Result: resp.Result}
 		}
 		last = &jsonrpc.Message{ID: m.ID, Error: resp.Error}
 	}
 	if last == nil {
 		last = jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "no upstream handled "+m.Method)
 	}
-	p.send(last)
+	return last
 }
 
 // ---- upstream -> client -------------------------------------------------

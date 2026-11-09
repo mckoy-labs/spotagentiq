@@ -9,6 +9,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,12 +41,64 @@ type upstream struct {
 	once   sync.Once
 }
 
-func startUpstream(cfg config.Upstream) (*upstream, error) {
-	cmd := exec.Command(cfg.Command, cfg.Args...)
-	cmd.Env = os.Environ()
-	for k, v := range cfg.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
+// baseEnv is what an upstream needs to start at all: where to find programs,
+// a home and temp directory, locale, and proxy/CA settings. It matches the
+// defaults MCP SDKs use for stdio servers, and deliberately leaves out
+// everything else in our environment.
+var baseEnv = []string{
+	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+	"TMPDIR", "TMP", "TEMP",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+	// Windows
+	"SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", "USERNAME", "USERPROFILE",
+	"HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES",
+	"PROGRAMFILES(X86)", "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS",
+}
+
+// upstreamEnv builds the environment for one upstream server.
+//
+// Upstreams are third-party code. If they inherited our environment they
+// would see the inbox token (and could approve held calls themselves) and
+// every other upstream's credentials. So by default each gets baseEnv plus
+// only what its own "env" block lists. inherit_env opts a server back into
+// the full environment, still without the token.
+func upstreamEnv(cfg config.Upstream, parent []string, token string) []string {
+	keep := func(name, value string) bool {
+		if strings.EqualFold(name, "SPOTAGENTIQ_TOKEN") || (token != "" && value == token) {
+			return false
+		}
+		if cfg.InheritEnv {
+			return true
+		}
+		for _, b := range baseEnv {
+			if strings.EqualFold(name, b) {
+				return true
+			}
+		}
+		return false
 	}
+	var env []string
+	for _, kv := range parent {
+		name, value, ok := strings.Cut(kv, "=")
+		if ok && name != "" && keep(name, value) {
+			env = append(env, kv)
+		}
+	}
+	names := make([]string, 0, len(cfg.Env))
+	for k := range cfg.Env {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		env = append(env, k+"="+cfg.Env[k])
+	}
+	return env
+}
+
+func startUpstream(cfg config.Upstream, token string) (*upstream, error) {
+	cmd := exec.Command(cfg.Command, cfg.Args...)
+	cmd.Env = upstreamEnv(cfg, os.Environ(), token)
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}

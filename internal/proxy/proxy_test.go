@@ -37,21 +37,30 @@ type harness struct {
 	conn   *jsonrpc.Conn
 	store  *approvals.Store
 	log    string
+	audit  *audit.Log
 	nextID int
 	done   chan error
 }
 
 func newHarness(t *testing.T, upstreams int, rules []policy.Rule, def policy.Action, timeout string) *harness {
 	t.Helper()
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "audit.jsonl")
-	cfg := &config.Config{Agent: "test-agent", Listen: "", Token: "", LogPath: logPath, ApprovalTimeout: timeout, DefaultAction: def, Rules: rules, Redact: []string{"card_number"}}
+	var ups []config.Upstream
 	for i := 0; i < upstreams; i++ {
-		cfg.Upstreams = append(cfg.Upstreams, config.Upstream{
+		ups = append(ups, config.Upstream{
 			Name: fmt.Sprintf("crm%d", i), Command: os.Args[0], Args: []string{"-test.run=TestHelperUpstream"},
 			Env: map[string]string{"GK_HELPER_UPSTREAM": "1"},
 		})
 	}
+	return newHarnessWith(t, &config.Config{Upstreams: ups, Rules: rules, DefaultAction: def, ApprovalTimeout: timeout})
+}
+
+// newHarnessWith runs a proxy for cfg; the log path, agent name and redaction
+// list are filled in.
+func newHarnessWith(t *testing.T, cfg *config.Config) *harness {
+	t.Helper()
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "audit.jsonl")
+	cfg.Agent, cfg.LogPath, cfg.Redact = "test-agent", logPath, []string{"card_number"}
 	pol, err := policy.Compile(cfg.Rules, cfg.DefaultAction, cfg.Redact)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +78,7 @@ func newHarness(t *testing.T, upstreams int, rules []policy.Rule, def policy.Act
 	go func() { done <- p.Run(context.Background()); lg.Close() }()
 	t.Cleanup(func() { clientW.Close(); <-done })
 
-	h := &harness{t: t, conn: jsonrpc.NewConn(clientR, clientW), store: store, log: logPath, done: done}
+	h := &harness{t: t, conn: jsonrpc.NewConn(clientR, clientW), store: store, log: logPath, audit: lg, done: done}
 	res := h.call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
 	if res.Error != nil {
 		t.Fatalf("initialize: %v", res.Error)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/mckoy-labs/spotagentiq/internal/policy"
@@ -19,7 +20,16 @@ type Upstream struct {
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Cwd     string            `json:"cwd,omitempty"`
+	// InheritEnv passes SpotAgentIQ's whole environment to this server
+	// instead of the minimal default. Avoid it: every variable in the
+	// environment, including other servers' credentials, becomes readable by
+	// this server's code. The inbox token is withheld either way.
+	InheritEnv bool `json:"inherit_env,omitempty"`
 }
+
+// ReservedUpstream is the upstream name policy uses for MCP requests that are
+// not tool calls (resources/read, prompts/get, ...).
+const ReservedUpstream = "mcp"
 
 // Config is the on-disk configuration.
 type Config struct {
@@ -67,6 +77,9 @@ func Load(path string) (*Config, error) {
 		for k, v := range c.Upstreams[i].Env {
 			c.Upstreams[i].Env[k] = expandEnv(v)
 		}
+		for j, v := range c.Upstreams[i].Args {
+			c.Upstreams[i].Args[j] = expandEnv(v)
+		}
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -108,6 +121,12 @@ func (c *Config) Validate() error {
 	for i, u := range c.Upstreams {
 		if u.Name == "" {
 			return fmt.Errorf("config: upstreams[%d].name is required", i)
+		}
+		if strings.ContainsAny(u.Name, "/*? \t\r\n") {
+			return fmt.Errorf("config: upstream name %q may not contain '/', '*', '?' or spaces", u.Name)
+		}
+		if u.Name == ReservedUpstream {
+			return fmt.Errorf("config: upstream name %q is reserved", u.Name)
 		}
 		if u.Command == "" {
 			return fmt.Errorf("config: upstreams[%d].command is required", i)
