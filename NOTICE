@@ -2,3 +2,11 @@ SpotAgentIQ
 Copyright 2026 Jordan McKoy
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The approval inbox embeds two typefaces, each under the SIL Open Font License,
+Version 1.1. The licence texts are in internal/inbox/assets/.
+
+  Archivo        Copyright 2020 The Archivo Project Authors
+                 (https://github.com/Omnibus-Type/Archivo)
+  Martian Mono   Copyright 2021 The Martian Mono Project Authors
+                 (https://github.com/evilmartians/mono)

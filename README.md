@@ -163,6 +163,8 @@ through the gate.
 
 ### 3. Open the inbox
 
+![The approval inbox: a held send_email call with its arguments, a countdown, and approve and reject buttons](docs/inbox.png)
+
 <http://localhost:8484>, paste the token, type your name. Held calls appear
 within two seconds, with the full (redacted) arguments and the rule that caught
 them. Approve runs the call and returns the real result to the agent. Reject

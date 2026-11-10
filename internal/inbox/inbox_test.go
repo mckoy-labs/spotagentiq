@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/mckoy-labs/spotagentiq/internal/approvals"
@@ -82,5 +84,47 @@ func TestGuessingIsLockedOut(t *testing.T) {
 	}
 	if c := get(h, "/api/state", other, bearer("correct-horse-battery")); c != 200 {
 		t.Errorf("three typos locked a user out: %d", c)
+	}
+}
+
+func TestPageIsLockedDownByCSP(t *testing.T) {
+	h := newServer(t)
+	r := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	csp := w.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'none'", "script-src 'sha256-", "style-src 'sha256-", "frame-ancestors 'none'", "connect-src 'self'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP is missing %q: %s", want, csp)
+		}
+	}
+	if strings.Contains(csp, "unsafe-inline") || strings.Contains(csp, "unsafe-eval") {
+		t.Errorf("CSP must not allow unsafe-inline or unsafe-eval: %s", csp)
+	}
+	// The policy only works if the page never relies on what it forbids.
+	page := w.Body.String()
+	if m := regexp.MustCompile(`(?i)\son[a-z]+\s*=\s*["']`).FindString(page); m != "" {
+		t.Errorf("inline event handler in ui.html (blocked by the CSP): %q", m)
+	}
+	if m := regexp.MustCompile(`(?i)\sstyle\s*=\s*["']`).FindString(page); m != "" {
+		t.Errorf("inline style attribute in ui.html (blocked by the CSP): %q", m)
+	}
+	if n := strings.Count(page, "<script"); n != 1 {
+		t.Errorf("want exactly one script block, got %d", n)
+	}
+	if m := regexp.MustCompile(`(?i)(src|href)\s*=\s*["']https?://|url\(\s*["']?https?://|@import`).FindString(page); m != "" {
+		t.Errorf("the page must not load anything from another origin: %q", m)
+	}
+}
+
+func TestFontsAreServed(t *testing.T) {
+	h := newServer(t)
+	for _, p := range []string{"/assets/archivo.woff2", "/assets/martian-mono.woff2"} {
+		r := httptest.NewRequest("GET", p, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 200 || w.Header().Get("Content-Type") != "font/woff2" || w.Body.Len() < 10000 || w.Body.String()[:4] != "wOF2" {
+			t.Errorf("%s: %d %s %d bytes", p, w.Code, w.Header().Get("Content-Type"), w.Body.Len())
+		}
 	}
 }

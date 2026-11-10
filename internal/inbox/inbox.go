@@ -3,14 +3,17 @@
 package inbox
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +26,34 @@ import (
 
 //go:embed ui.html
 var uiHTML []byte
+
+// The fonts are Archivo and Martian Mono, both under the SIL Open Font
+// License; the licence texts sit next to them in assets/.
+//
+//go:embed assets/archivo.woff2
+var fontArchivo []byte
+
+//go:embed assets/martian-mono.woff2
+var fontMartianMono []byte
+
+// uiCSP is the Content-Security-Policy for the inbox page. The page is the
+// one place a person approves an agent's actions, and it displays text the
+// agent chose (tool names, arguments, results). Everything is escaped, and
+// this is the second line of defence: only the page's own stylesheet and
+// script may run, identified by hash, so injected markup can't execute
+// anything or load anything from elsewhere.
+var uiCSP = func() string {
+	hash := func(tag string) string {
+		m := regexp.MustCompile(`(?s)<` + tag + `>(.*?)</` + tag + `>`).FindSubmatch(uiHTML)
+		if m == nil {
+			panic("inbox: ui.html has no <" + tag + "> block")
+		}
+		sum := sha256.Sum256(m[1])
+		return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+	}
+	return "default-src 'none'; script-src " + hash("script") + "; style-src " + hash("style") +
+		"; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+}()
 
 // Server serves the inbox.
 type Server struct {
@@ -43,8 +74,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Security-Policy", uiCSP)
 		w.Write(uiHTML)
 	})
+	font := func(b []byte) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "font/woff2")
+			w.Header().Set("Cache-Control", "public, max-age=604800")
+			w.Write(b)
+		}
+	}
+	mux.HandleFunc("GET /assets/archivo.woff2", font(fontArchivo))
+	mux.HandleFunc("GET /assets/martian-mono.woff2", font(fontMartianMono))
 	mux.Handle("GET /api/state", s.auth(s.handleState))
 	mux.Handle("POST /api/decide", s.auth(s.handleDecide))
 	mux.Handle("GET /api/log", s.auth(s.handleLog))
