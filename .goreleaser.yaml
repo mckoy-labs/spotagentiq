@@ -44,6 +44,33 @@ signs:
       - "${artifact}"
       - "--yes"
 
+# Homebrew: brew install mckoy-labs/tap/spotagentiq
+#
+# The formula is pushed to github.com/mckoy-labs/homebrew-tap with a deploy
+# key that can write to that one repository and nothing else. Without the
+# HOMEBREW_TAP_DEPLOY_KEY secret (forks, the dry run) the formula is still
+# generated into dist/ but not pushed.
+brews:
+  - name: spotagentiq
+    repository:
+      owner: mckoy-labs
+      name: homebrew-tap
+      branch: main
+      git:
+        url: "ssh://git@github.com/mckoy-labs/homebrew-tap.git"
+        private_key: '{{ if index .Env "HOMEBREW_TAP_DEPLOY_KEY" }}{{ .Env.HOMEBREW_TAP_DEPLOY_KEY }}{{ end }}'
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_DEPLOY_KEY" }}auto{{ else }}true{{ end }}'
+    directory: Formula
+    homepage: https://www.spotagentiq.com
+    description: "Human approval and a tamper-evident audit log for AI agent tool calls"
+    license: Apache-2.0
+    commit_author:
+      name: spotagentiq-release
+      email: releases@spotagentiq.com
+    commit_msg_template: "spotagentiq {{ .Tag }}"
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/spotagentiq version")
+
 changelog:
   use: github
   filters:

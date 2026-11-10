@@ -16,8 +16,8 @@ them, and keeps a hash-chained audit log of every decision.
 ## Quickstart
 
 ```sh
-# 1. Install: a signed binary from Releases (Linux, macOS, Windows), or
-go install github.com/mckoy-labs/spotagentiq/cmd/spotagentiq@latest
+# 1. Install (macOS and Linux; or a signed binary from Releases, or go install)
+brew install mckoy-labs/tap/spotagentiq
 
 # 2. Watch it work: four calls, one allowed, one blocked, two held for you
 spotagentiq demo
@@ -36,6 +36,10 @@ The policy is a short list of rules. First match wins:
   { "match": "delete_*",   "action": "require_approval", "reason": "Destructive" }
 ]
 ```
+
+No Homebrew? Download a signed binary for Linux, macOS or Windows from
+[Releases](https://github.com/mckoy-labs/spotagentiq/releases/latest), or run
+`go install github.com/mckoy-labs/spotagentiq/cmd/spotagentiq@latest`.
 
 [Policy docs](https://www.spotagentiq.com/docs/policy) ·
 [Install for real](#install-for-real) ·

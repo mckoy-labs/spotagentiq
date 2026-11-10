@@ -73,3 +73,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Write access to mckoy-labs/homebrew-tap only. If it isn't set the
+          # release still publishes; the Homebrew formula is just not pushed.
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
